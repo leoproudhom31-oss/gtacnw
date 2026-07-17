@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Jade Harbor — Chroniques du Lotus Noir</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='46' fill='%23103c33'/><text y='68' x='50' text-anchor='middle' font-size='52'>&#x1F3EE;</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <!-- ====== ÉCRAN TITRE ====== -->
+  <div id="title-screen" class="overlay">
+    <div class="title-inner">
+      <div class="hanzi">玉 港</div>
+      <h1 class="logo">JADE&nbsp;HARBOR</h1>
+      <div class="subtitle">— Chroniques du Lotus Noir —</div>
+      <div class="menu">
+        <button id="btn-new" class="menu-btn">Nouvelle partie</button>
+        <button id="btn-continue" class="menu-btn" style="display:none">Continuer</button>
+        <button id="btn-controls" class="menu-btn ghost">Commandes</button>
+      </div>
+      <div class="title-foot">
+        Un jeu d'action en vue du dessus &middot; moteur &amp; univers originaux &middot; v1.0<br>
+        Hommage aux jeux d'action urbains portables. Clavier requis.
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== PANNEAU COMMANDES ====== -->
+  <div id="controls-screen" class="overlay" style="display:none">
+    <div class="panel">
+      <h2>Commandes</h2>
+      <table class="controls-table">
+        <tr><td class="k">Z Q S D / W A S D / Flèches</td><td>Se déplacer &middot; Conduire</td></tr>
+        <tr><td class="k">Maj</td><td>Sprint (à pied)</td></tr>
+        <tr><td class="k">E&nbsp;&nbsp;ou&nbsp;&nbsp;Entrée</td><td>Monter / descendre d'un véhicule &middot; Interagir</td></tr>
+        <tr><td class="k">Espace</td><td>Frapper / Tirer (visée auto) &middot; Frein à main en voiture</td></tr>
+        <tr><td class="k">Clic gauche</td><td>Tirer vers la souris</td></tr>
+        <tr><td class="k">Tab&nbsp;&nbsp;ou&nbsp;&nbsp;1&nbsp;2&nbsp;3&nbsp;4</td><td>Changer d'arme</td></tr>
+        <tr><td class="k">K</td><td>Klaxon</td></tr>
+        <tr><td class="k">C</td><td>Grande carte</td></tr>
+        <tr><td class="k">M</td><td>Couper / activer le son</td></tr>
+        <tr><td class="k">Échap ou P</td><td>Pause</td></tr>
+      </table>
+      <button id="btn-close-controls" class="menu-btn">Retour</button>
+    </div>
+  </div>
+
+  <!-- ====== ÉCRAN DE CHARGEMENT ====== -->
+  <div id="loading-screen" class="overlay" style="display:none">
+    <div class="title-inner">
+      <div class="hanzi small">玉 港</div>
+      <div class="loading-label" id="loading-label">Construction de la ville…</div>
+      <div class="loading-bar"><div id="loading-fill"></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/input.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/map.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/missions.js"></script>
+<script src="js/game.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

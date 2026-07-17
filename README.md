@@ -1,1 +1,134 @@
-# gtacnw
+# 玉港 · JADE HARBOR — Chroniques du Lotus Noir
+
+Un jeu d'action urbain en vue du dessus **jouable directement dans le navigateur**,
+hommage à *GTA: Chinatown Wars* — avec **son propre univers, sa propre direction
+artistique et son propre moteur**, écrit à 100 % en JavaScript/Canvas, **sans
+aucune dépendance ni asset externe** : tout le visuel et tout le son sont générés
+par le code.
+
+> Jin débarque à Jade Harbor, une île-port quelque part entre le thé et la poudre,
+> pour travailler chez son oncle Wu… dont le « salon de thé » est la façade la
+> plus poreuse de tout le Quartier du Lotus.
+
+---
+
+## 🎮 Jouer
+
+**Aucune installation.** Deux options :
+
+1. **Double-cliquer sur `index.html`** — le jeu tourne en local dans n'importe
+   quel navigateur récent (Chrome, Firefox, Edge, Safari). Clavier requis.
+2. Ou servir le dossier :
+   ```bash
+   python3 -m http.server 8000
+   # puis ouvrir http://localhost:8000
+   ```
+   (Le dépôt est aussi directement compatible **GitHub Pages** : Settings →
+   Pages → branche → `/` racine.)
+
+La progression (missions, argent, armes) est **sauvegardée automatiquement**
+dans le navigateur après chaque mission.
+
+## ⌨️ Commandes
+
+| Touche | Action |
+|---|---|
+| **Z Q S D** / W A S D / flèches | Se déplacer · Conduire |
+| **Maj** | Sprint |
+| **E** ou Entrée | Monter/descendre d'un véhicule · Interagir |
+| **Espace** | Frapper / Tirer (visée auto avec anticipation) · **Frein à main** en voiture |
+| **Clic gauche** | Tirer vers la souris (y compris en conduisant : drive-by) |
+| **Tab** ou **1–4** | Changer d'arme |
+| **K** | Klaxon |
+| **C** | Grande carte de l'île |
+| **M** | Couper / activer le son |
+| **Échap** / P | Pause |
+
+## ✨ Tout y est dès la v1
+
+### La vue et le contrôle « Chinatown Wars »
+- Vue du dessus avec **bâtiments extrudés en fausse 3D** (parallaxe radiale) ;
+- **la caméra pivote avec le véhicule** (la voiture pointe toujours vers le haut)
+  et revient doucement au nord à pied ;
+- zoom dynamique selon la vitesse, screenshake, contrôles relatifs à la caméra.
+
+### Une île entière, dense, à explorer
+7 quartiers générés de façon déterministe (la même ville pour tout le monde) :
+- **Hauteurs Meridian** — le centre d'affaires, ses tours vitrées et sa grande place ;
+- **Collines de Papier** — quartier résidentiel, maisons en rangées et jardins ;
+- **Quartier du Lotus** — le cœur : shophouses colorées, enseignes néon, portes
+  *paifang*, lanternes, grand marché couvert, et le salon de thé de Wu ;
+- **Bazar de l'Ouest** — commerces et le Garage Long ;
+- **Jardin des Brumes** — parc, étang, ponton et pagode dorée, cerisiers ;
+- **Canal des Lanternes** — coupe l'île en deux, 5 ponts, promenade, grues, péniches ;
+- **Docks de Fer + Jetée du Départ** — entrepôts, empilements de conteneurs,
+  la « Pêcherie Wang »… et le ferry qui a déposé Jin.
+
+Le tout avec trafic autonome (les voitures respectent les voies, tournent aux
+intersections, freinent, paniquent aux coups de feu), piétons, voitures garées
+volables, mobilier urbain, pickups cachés (santé, argent, armes, armure).
+
+### Les systèmes de jeu
+- **Véhicules** : 6 types (berline, taxi, sportive, van, pick-up, police),
+  physique arcade avec dérive au frein à main, traces de pneus, dégâts,
+  incendie puis **explosion**, carjacking ;
+- **Armes** : poings, batte, pistolet 9 mm, PM « Guêpe », fusil à pompe —
+  **visée auto verrouillée** (lock-on généreux façon console portable, avec
+  anticipation de trajectoire) ou tir libre à la souris ;
+- **Police / étoiles de recherche (5 niveaux)** : témoins, poursuites en
+  voiture-bélier, agents à pied, arrestation (*busted*), hôpital (*wasted*)…
+  et la signature Chinatown Wars : **détruire une voiture de patrouille fait
+  retomber la pression** ;
+- **GPS** : l'itinéraire est tracé en vert sur la minimap rotative, comme sur
+  la carte de l'île ;
+- **HUD complet** : minimap rotative, vie/armure, argent, étoiles, arme,
+  objectifs, chronos, annonces de quartier, leçons de tutoriel contextuelles ;
+- **Audio 100 % procédural** (WebAudio) : moteur, tirs, sirènes, klaxon,
+  explosions, jingles, et une nappe pentatonique d'ambiance.
+
+### Le prologue : 3 missions-tutoriel scénarisées (en français)
+Dialogues à portraits, marqueurs, échec/réessai, récompenses :
+
+1. **Bienvenue à Jade Harbor** — déplacement, sprint, GPS… et une embuscade
+   des *Requins du Port* pour apprendre le corps à corps ;
+2. **Les Caisses de l'Oncle** — voler une voiture, livraison chronométrée,
+   première étoile de recherche et l'art de semer la police ;
+3. **La Morsure du Requin** — le pistolet de Long, entraînement au tir,
+   assaut de la planque des Requins, la mallette, et une fuite à 2 étoiles.
+
+Après le prologue : l'île est à vous (« À suivre… »).
+
+## 🏮 Direction artistique « Encre & Néon »
+
+Univers original : palette encre profonde / jade lumineux / or lanterne /
+magenta néon, aplats saturés cerclés d'encre (cel-shading 2D), heure dorée
+permanente, enseignes bilingues français-hanzi (茶, 包, 警察…). Personnages,
+véhicules, ville, portraits et effets sont **dessinés par le code** au canvas —
+le dépôt ne contient aucune image.
+
+## 🧩 Architecture (zéro dépendance)
+
+```
+index.html          entrée + écrans titre/commandes/chargement
+css/style.css       DA de l'interface
+js/util.js          maths, RNG déterministe
+js/audio.js         synthèse WebAudio (SFX, sirènes, musique)
+js/input.js         clavier physique (AZERTY/QWERTY auto) + souris
+js/sprites.js       rendu procédural : piétons, véhicules, boîtes 2.5D, portraits
+js/map.js           génération de l'île, collisions, minimap, GPS (BFS)
+js/camera.js        caméra rotative, zoom, screenshake
+js/entities.js      joueur, piétons, IA trafic/police, balles, pickups, particules
+js/hud.js           minimap, jauges, dialogues, bannières, grande carte
+js/missions.js      moteur de missions + le prologue (3 missions)
+js/game.js          monde : boucle de simulation, spawns, wanted, sauvegarde
+js/main.js          bootstrap, boucle à pas fixe (60 Hz), pause
+```
+
+Le moteur simule à pas fixe (60 Hz), pré-rend le sol par *chunks* avec cache
+LRU, trie les bâtiments par distance caméra pour l'occlusion 2.5D, et tient
+60 fps dans Chromium en 1280×720.
+
+---
+
+*v1.0 — moteur, univers et code originaux. Hommage assumé aux jeux d'action
+urbains portables.*
