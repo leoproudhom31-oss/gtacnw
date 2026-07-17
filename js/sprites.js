@@ -19,129 +19,529 @@
   }
 
   /* =========================================================
-     PIÉTONS — dessinés en direct (peu de formes), face à +x
+     PIÉTONS v3 — sprites « cuits » en 2× sur canvas offscreen.
+     Chaque combinaison (allure, pose, frame, arme) n'est
+     dessinée qu'une fois, avec bien plus de détail : archétypes
+     civils, coiffures, chapeaux, lunettes, sacs, vraie marche
+     à 4 frames, éclairage rim + contours encre.
+     Repère local : le personnage regarde vers +x.
      ========================================================= */
 
-  // Palettes de tenues civiles
-  const CIV_TOPS = ["#c94f4f", "#4f7fc9", "#c9a44f", "#7ac94f", "#9b59b6", "#e8e4d8",
-                    "#3aa6a6", "#e07b39", "#5d6d7e", "#d63c6b", "#8d6e63", "#2e8b57"];
-  const CIV_BOTTOMS = ["#33415c", "#4a4a4a", "#6b4f3a", "#2c3e50", "#5c4d7d", "#7f8c8d"];
-  const SKINS = ["#f0c8a0", "#e8b48c", "#c68e5f", "#a06a42", "#8a5a34", "#f5d7b5"];
-  const HAIRS = ["#1b1b1b", "#3a2a1a", "#5a3a1a", "#777777", "#101a2e", "#4d4d4d"];
+  const SKINS = ["#f5d7b5", "#f0c8a0", "#e8b48c", "#d9a878", "#c68e5f", "#a06a42", "#8a5a34"];
+  const HAIRS = ["#14120f", "#2a1c10", "#4a2c14", "#6b4423", "#8a8078", "#b5aca0",
+                 "#101a2e", "#3d1f24", "#7a3520"];
 
-  function pedLook(kind, rng) {
-    switch (kind) {
-      case "player": return { skin: "#e8b48c", hair: "#14181f", top: "#2ee6a8", top2: "#0f7a55", bottom: "#23262e", hat: null };
-      case "wu":     return { skin: "#d9a878", hair: "#b9b9b9", top: "#6d6875", top2: "#4a4653", bottom: "#3a3a3a", hat: null };
-      case "cop":    return { skin: U.pick(rng, SKINS), hair: "#222", top: "#2b4c7e", top2: "#1c3357", bottom: "#22304a", hat: "#22304a" };
-      case "shark":  return { skin: U.pick(rng, SKINS), hair: "#181818", top: "#19b3c4", top2: "#0d7885", bottom: "#2c2c34", hat: "#0d7885" };
-      case "lotus":  return { skin: U.pick(rng, SKINS), hair: "#101010", top: "#23202b", top2: "#141119", bottom: "#1b1820", hat: null, trim: "#ffc857" };
-      default:       return { skin: U.pick(rng, SKINS), hair: U.pick(rng, HAIRS), top: U.pick(rng, CIV_TOPS), top2: null, bottom: U.pick(rng, CIV_BOTTOMS), hat: null };
-    }
+  // Archétypes civils : silhouette + palette + accessoires cohérents.
+  const ARCHETYPES = [
+    { id: "salaryman", w: 3,
+      tops: ["#33415c", "#2c3e50", "#4a4a55", "#3d3245"], panels: ["#e8e4d8", "#d8e4f0", "#f0e0d0"],
+      bottoms: ["#2c3040", "#3a3a44"], shoes: "#1d1a20",
+      hair: ["buzz", "short", "short"], hat: null, tie: true, glasses: 0.35, bag: "hand" },
+    { id: "worker", w: 2,
+      tops: ["#e07b39", "#e0b839", "#c9622e"], panels: ["#f5f0e6"],
+      bottoms: ["#4a5568", "#6b4f3a"], shoes: "#3a2c1a",
+      hair: ["buzz", "short"], hat: "hard", hatC: "#f2c230", hivis: true },
+    { id: "vendor", w: 2,
+      tops: ["#8d6e63", "#7a8a6a", "#a3593d"], panels: ["#e8dcc8"],
+      bottoms: ["#5c4d3d", "#4a4a4a"], shoes: "#2c2620",
+      hair: ["short"], hat: "straw", hatC: "#d9b36c", apron: "#5a4632" },
+    { id: "hoodie", w: 3,
+      tops: ["#d63c6b", "#4f7fc9", "#7ac94f", "#9b59b6", "#e05840"], panels: null,
+      bottoms: ["#23262e", "#3a4a5c"], shoes: "#e8e4d8",
+      hair: ["spiky", "buzz", "short"], hood: true, headphones: 0.5 },
+    { id: "tourist", w: 2,
+      tops: ["#3aa6a6", "#e8a03a", "#d0567a"], panels: ["#f5ead6"], floral: true,
+      bottoms: ["#c9bda6", "#8fa3b0"], shoes: "#b5836a",
+      hair: ["short", "bob"], hat: "bob", hatC: "#e8e0c8", bag: "strap", camera: true },
+    { id: "elegant", w: 2,
+      tops: ["#c0396b", "#6b3fa0", "#2e8b57", "#c9a227"], panels: null, dress: true,
+      bottoms: ["#1d1a20"], shoes: "#3d1f24",
+      hair: ["bob", "long", "bun"], glasses: 0.2, bag: "strap" },
+    { id: "granny", w: 1.5,
+      tops: ["#9c8aa8", "#b5836a", "#8fa3b0", "#c9bda6"], panels: ["#e8e4d8"],
+      bottoms: ["#5c5560", "#6b5f50"], shoes: "#4a4038",
+      hair: ["bun"], hairC: "#b5aca0", glasses: 0.5 },
+    { id: "courier", w: 2,
+      tops: ["#2e8b57", "#c94f4f", "#4f7fc9"], panels: null,
+      bottoms: ["#23262e", "#4a4a4a"], shoes: "#e05840",
+      hair: ["short", "spiky"], hat: "cap", hatC: "#1d1a20", bag: "strap" }
+  ];
+
+  let _lookN = 0;
+
+  function pickArch(rng) {
+    let total = 0;
+    for (const a of ARCHETYPES) total += a.w;
+    let r = rng() * total;
+    for (const a of ARCHETYPES) { r -= a.w; if (r <= 0) return a; }
+    return ARCHETYPES[0];
   }
 
-  /**
-   * Dessine un piéton. Le contexte doit déjà être translaté sur sa position.
-   * angle : direction du regard. walk : phase de marche (0 si immobile).
-   * pose : "idle" | "walk" | "punch" | "aim" | "down" | "sit" | "phone" | "cower"
-   */
-  function drawPed(ctx, look, angle, walkPhase, pose, opt) {
-    opt = opt || {};
-    ctx.save();
-    ctx.rotate(angle);
-    if (opt.scale && opt.scale !== 1) ctx.scale(opt.scale, opt.scale);
-    if (pose === "cower") ctx.scale(0.86, 0.86);
-
-    if (pose === "down") {
-      // au sol
-      ctx.globalAlpha = opt.alpha != null ? opt.alpha : 1;
-      ctx.fillStyle = look.bottom;
-      ctx.strokeStyle = INK; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.ellipse(-2, 0, 9, 5, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = look.top;
-      ctx.beginPath(); ctx.ellipse(3, 0, 7, 6, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = look.skin;
-      ctx.beginPath(); ctx.arc(10, 0, 4, 0, U.TAU); ctx.fill(); ctx.stroke();
-      ctx.restore();
-      return;
+  function pedLook(kind, rng) {
+    rng = rng || Math.random;
+    const skin = U.pick(rng, SKINS);
+    let L;
+    switch (kind) {
+      case "player":
+        L = { skin: "#e8b48c", hair: "#14181f", hairStyle: "spiky",
+              top: "#1f9c72", panel: "#2ee6a8", bottom: "#23262e", shoes: "#e8e4d8",
+              trim: "#ffc857", zipper: true };
+        break;
+      case "wu":
+        L = { skin: "#d9a878", hair: "#b9b9b9", hairStyle: "bald",
+              top: "#5c5568", panel: "#6d6875", bottom: "#3a3a3a", shoes: "#2c2620",
+              robe: true, trim: "#ffc857", beard: "#b9b9b9" };
+        break;
+      case "mechanic":
+        L = { skin: "#c68e5f", hair: "#2a1c10", hairStyle: "short",
+              top: "#4f6a8a", panel: "#5f7a9a", bottom: "#4f6a8a", shoes: "#2c2620",
+              hat: "cap", hatC: "#8a3324", apron: "#3d4a5c" };
+        break;
+      case "cop":
+        L = { skin, hair: "#1d1a20", hairStyle: "buzz",
+              top: "#2b4c7e", panel: "#3a5c90", bottom: "#22304a", shoes: "#14121a",
+              hat: "police", hatC: "#22304a", belt: "#14121a", badge: true,
+              glasses: rng() < 0.4 };
+        break;
+      case "shark":
+        L = { skin, hair: "#181818", hairStyle: "buzz",
+              top: "#158fa0", panel: "#19b3c4", bottom: "#2c2c34", shoes: "#1d1a20",
+              hat: "bandana", hatC: "#0d5f6b", zipper: true,
+              tattoo: rng() < 0.5 };
+        break;
+      case "lotus":
+        L = { skin, hair: "#101010", hairStyle: "short",
+              top: "#23202b", panel: "#141119", bottom: "#1b1820", shoes: "#14121a",
+              trim: "#ffc857", tie: "#ffc857", glasses: rng() < 0.5 };
+        break;
+      default: {
+        const a = pickArch(rng);
+        L = {
+          skin,
+          hair: a.hairC || U.pick(rng, HAIRS),
+          hairStyle: U.pick(rng, a.hair),
+          top: U.pick(rng, a.tops),
+          panel: a.panels ? U.pick(rng, a.panels) : null,
+          bottom: U.pick(rng, a.bottoms),
+          shoes: a.shoes,
+          hat: a.hat || null, hatC: a.hatC || null,
+          tie: a.tie ? U.pick(rng, ["#a93226", "#1e8449", "#2874a6", "#b9770e"]) : null,
+          glasses: a.glasses ? rng() < a.glasses : false,
+          bag: a.bag && rng() < 0.6 ? a.bag : null,
+          bagC: U.pick(rng, ["#6b4f3a", "#3d4a5c", "#8a3324"]),
+          hivis: !!a.hivis, apron: a.apron || null, hood: !!a.hood,
+          headphones: a.headphones ? rng() < a.headphones : false,
+          dress: !!a.dress, floral: !!a.floral, camera: !!a.camera
+        };
+      }
     }
+    // clé de cache : les mêmes combinaisons partagent leurs sprites
+    L.key = [kind, L.skin, L.hair, L.hairStyle, L.top, L.panel, L.bottom, L.hat, L.hatC,
+             L.tie, L.glasses ? 1 : 0, L.bag, L.bagC, L.hivis ? 1 : 0, L.apron,
+             L.hood ? 1 : 0, L.headphones ? 1 : 0, L.dress ? 1 : 0, L.floral ? 1 : 0,
+             L.robe ? 1 : 0, L.trim, L.beard, L.belt, L.zipper ? 1 : 0, L.tattoo ? 1 : 0,
+             L.camera ? 1 : 0, L.badge ? 1 : 0].join("~");
+    return L;
+  }
 
-    const swing = Math.sin(walkPhase);
-    const punchT = pose === "punch" ? (opt.punchT || 0) : 0; // 0..1
+  /* ---------- cuisson des frames ---------- */
 
-    // ombre portée
-    ctx.fillStyle = "rgba(10,8,20,0.30)";
-    ctx.beginPath(); ctx.ellipse(0, 2, 9, 7, 0, 0, U.TAU); ctx.fill();
+  const SS = 2;              // super-échantillonnage
+  const FR = 64;             // taille logique d'une frame
+  const frameCache = new Map();
+  const FRAME_CACHE_MAX = 900;
 
-    // pieds
-    ctx.fillStyle = "#20242c";
-    ctx.strokeStyle = INK; ctx.lineWidth = 1.2;
+  // balancements des 4 frames de marche : foulée avant / passage / foulée
+  // arrière / passage — cadence naturelle sans direction inversée.
+  const WALK_SWING = [0.95, 0.2, -0.95, -0.2];
+
+  function pedFrame(look, pose, fi, weapon) {
+    const key = look.key + "|" + pose + fi + "|" + (weapon || "");
+    let c = frameCache.get(key);
+    if (c) return c;
+    if (frameCache.size >= FRAME_CACHE_MAX) {
+      const first = frameCache.keys().next().value;
+      frameCache.delete(first);
+    }
+    c = document.createElement("canvas");
+    c.width = c.height = FR * SS;
+    const x = c.getContext("2d");
+    x.setTransform(SS, 0, 0, SS, FR * SS / 2, FR * SS / 2);
+    x.lineJoin = "round";
+    bakePed(x, look, pose, fi, weapon);
+    frameCache.set(key, c);
+    return c;
+  }
+
+  function E(x, cx, cy, rx, ry, rot, fill, noStroke) {
+    x.fillStyle = fill;
+    x.beginPath();
+    x.ellipse(cx, cy, rx, ry, rot || 0, 0, U.TAU);
+    x.fill();
+    if (!noStroke) { x.strokeStyle = INK; x.lineWidth = 1.25; x.stroke(); }
+  }
+
+  function bakePed(x, L, pose, fi, weapon) {
+    if (pose === "down") { bakeDown(x, L); return; }
+    if (pose === "cower") x.scale(0.86, 0.86);
+
+    const swing = pose === "walk" ? WALK_SWING[fi] : 0;
+    const punch = pose === "punch" ? (fi === 0 ? 1 : 0.35) : 0;
+    const shoes = L.shoes || "#20242c";
+    const sleeve = U.shade(L.top, -0.18);
+    const hand = L.skin;
+
+    /* --- jambes / pieds --- */
     if (pose === "sit") {
-      // jambes repliées devant
-      ctx.beginPath(); ctx.ellipse(6, -3, 3.2, 2.4, 0, 0, U.TAU); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(6, 3, 3.2, 2.4, 0, 0, U.TAU); ctx.fill();
+      E(x, 7, -3, 3.6, 2.5, 0, L.bottom);
+      E(x, 7, 3, 3.6, 2.5, 0, L.bottom);
+      E(x, 10, -3, 2.2, 1.9, 0, shoes);
+      E(x, 10, 3, 2.2, 1.9, 0, shoes);
     } else if (pose !== "cower") {
-      ctx.beginPath(); ctx.ellipse(swing * 4, -4, 3.2, 2.4, 0, 0, U.TAU); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(-swing * 4, 4, 3.2, 2.4, 0, 0, U.TAU); ctx.fill();
+      // cuisse + chaussure par jambe, foulée opposée
+      const lift = pose === "walk" ? Math.abs(swing) * 0.8 : 0;
+      E(x, swing * 3.2, -4.2, 3.6, 2.5, swing * 0.18, L.bottom, true);
+      E(x, -swing * 3.2, 4.2, 3.6, 2.5, -swing * 0.18, L.bottom, true);
+      E(x, swing * 5.6, -4.4, 2.4 + lift * 0.4, 1.9, 0, shoes);
+      E(x, -swing * 5.6, 4.4, 2.4 + lift * 0.4, 1.9, 0, shoes);
     }
 
-    // bras
-    const armFwd = pose === "aim" ? 8 : (punchT > 0 ? punchT * 10 : 0);
-    ctx.fillStyle = look.top2 || U.shade(look.top, -0.25);
+    /* --- sac à dos / mallette (derrière le torse) --- */
+    if (L.bag === "hand" && (pose === "idle" || pose === "walk")) {
+      x.fillStyle = L.bagC; x.strokeStyle = INK; x.lineWidth = 1.2;
+      x.fillRect(-2 - swing * 2, 7.6, 5.5, 3.6);
+      x.strokeRect(-2 - swing * 2, 7.6, 5.5, 3.6);
+    }
+
+    /* --- bras --- */
+    x.strokeStyle = INK;
+    const armY = L.robe ? 8.2 : 7.4;
     if (pose === "aim") {
-      // deux bras tendus devant (tenue d'arme)
-      ctx.beginPath(); ctx.ellipse(7, -3, 4.5, 2.6, 0.25, 0, U.TAU); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(7, 3, 4.5, 2.6, -0.25, 0, U.TAU); ctx.fill(); ctx.stroke();
+      E(x, 7.2, -3.2, 4.8, 2.7, 0.28, sleeve);
+      E(x, 7.2, 3.2, 4.8, 2.7, -0.28, sleeve);
+      E(x, 10.6, -1.6, 1.7, 1.5, 0, hand);
+      E(x, 10.6, 1.6, 1.7, 1.5, 0, hand);
     } else if (pose === "cower") {
-      // bras au-dessus de la tête
-      ctx.beginPath(); ctx.ellipse(4.5, -3, 3.4, 2.6, 0.4, 0, U.TAU); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(4.5, 3, 3.4, 2.6, -0.4, 0, U.TAU); ctx.fill(); ctx.stroke();
+      E(x, 4.4, -3, 3.6, 2.6, 0.45, sleeve);
+      E(x, 4.4, 3, 3.6, 2.6, -0.45, sleeve);
+      E(x, 6.8, -1.8, 1.6, 1.4, 0, hand);
+      E(x, 6.8, 1.8, 1.6, 1.4, 0, hand);
     } else if (pose === "phone") {
-      // une main à l'oreille
-      ctx.beginPath(); ctx.ellipse(1, 7, 3.4, 2.6, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(4, -4.5, 3.2, 2.6, 0.5, 0, U.TAU); ctx.fill(); ctx.stroke();
+      E(x, 1, armY, 3.6, 2.6, 0, sleeve);
+      E(x, 4.2, -4.6, 3.4, 2.6, 0.55, sleeve);
+      E(x, 6.4, -2.6, 1.7, 1.5, 0, hand);
+      // le téléphone
+      x.fillStyle = "#14121a";
+      x.fillRect(6.4, -3.8, 2.2, 3.4);
+    } else if (pose === "punch") {
+      const ext = 4 + punch * 7;
+      E(x, ext, -5.4, 4.2, 2.5, 0.12, sleeve);
+      E(x, 1 - punch * 2, 6.8, 3.4, 2.6, 0, sleeve);
+      E(x, ext + 3.4, -4.8, 1.9, 1.7, 0, hand);
     } else {
-      ctx.beginPath(); ctx.ellipse(1 + swing * 3 + armFwd, -7, 3.4, 2.6, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(1 - swing * 3 + (punchT > 0.5 ? armFwd : 0), 7, 3.4, 2.6, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
+      E(x, 1 + swing * 3, -armY, 3.5, 2.6, 0, sleeve);
+      E(x, 1 - swing * 3, armY, 3.5, 2.6, 0, sleeve);
+      E(x, 3.4 + swing * 4, -armY - 0.4, 1.6, 1.4, 0, hand);
+      E(x, 3.4 - swing * 4, armY + 0.4, 1.6, 1.4, 0, hand);
     }
 
-    // torse
-    ctx.fillStyle = look.top;
-    ctx.beginPath(); ctx.ellipse(0, 0, 7.5, 6.5, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
-    if (look.trim) {
-      ctx.strokeStyle = look.trim; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(2, -4); ctx.lineTo(5, 0); ctx.lineTo(2, 4); ctx.stroke();
-      ctx.strokeStyle = INK; ctx.lineWidth = 1.2;
+    /* --- torse --- */
+    const trx = L.robe ? 9.4 : (L.dress ? 8.2 : 7.8);
+    const trY = L.robe || L.dress ? 7.4 : 6.8;
+    E(x, 0, 0, trx, trY, 0, L.top);
+    // panneau central (chemise sous veste ouverte)
+    if (L.panel) {
+      x.fillStyle = L.panel;
+      x.beginPath();
+      x.moveTo(trx - 1.6, -2.4);
+      x.quadraticCurveTo(2.2, -3.2, 0.4, 0);
+      x.quadraticCurveTo(2.2, 3.2, trx - 1.6, 2.4);
+      x.quadraticCurveTo(trx + 0.4, 0, trx - 1.6, -2.4);
+      x.fill();
     }
+    if (L.zipper) {
+      x.strokeStyle = "rgba(20,16,32,0.55)"; x.lineWidth = 0.9;
+      x.beginPath(); x.moveTo(trx - 1, 0); x.lineTo(-trx + 2, 0); x.stroke();
+    }
+    if (L.hivis) {
+      x.strokeStyle = "#e8e4d8"; x.lineWidth = 1.6;
+      x.beginPath();
+      x.moveTo(-3, -trY + 1.4); x.lineTo(-3, trY - 1.4);
+      x.moveTo(1.5, -trY + 1.2); x.lineTo(1.5, trY - 1.2);
+      x.stroke();
+    }
+    if (L.floral) {
+      x.fillStyle = "rgba(245,234,214,0.75)";
+      for (const [fx, fy] of [[-3, -3], [1, 3.4], [-4.5, 2.4], [2.6, -3.4]]) {
+        x.beginPath(); x.arc(fx, fy, 1.1, 0, U.TAU); x.fill();
+      }
+    }
+    if (L.apron) {
+      x.fillStyle = L.apron;
+      x.beginPath();
+      x.moveTo(trx - 1, -3.4); x.quadraticCurveTo(trx + 2.4, 0, trx - 1, 3.4);
+      x.lineTo(1, 2.6); x.lineTo(1, -2.6);
+      x.closePath(); x.fill();
+      x.strokeStyle = INK; x.lineWidth = 1; x.stroke();
+    }
+    if (L.tie) {
+      x.fillStyle = typeof L.tie === "string" ? L.tie : "#a93226";
+      x.beginPath();
+      x.moveTo(trx - 2, -1); x.lineTo(trx - 2, 1); x.lineTo(2.4, 0.7); x.lineTo(2.4, -0.7);
+      x.closePath(); x.fill();
+    }
+    if (L.belt) {
+      x.strokeStyle = L.belt; x.lineWidth = 1.7;
+      x.beginPath(); x.moveTo(-2.4, -trY + 1); x.lineTo(-2.4, trY - 1); x.stroke();
+    }
+    if (L.trim) {
+      x.strokeStyle = L.trim; x.lineWidth = 1.3;
+      x.beginPath();
+      x.moveTo(trx - 2.2, -2.8); x.quadraticCurveTo(trx + 0.6, 0, trx - 2.2, 2.8);
+      x.stroke();
+    }
+    if (L.bag === "strap") {
+      x.strokeStyle = L.bagC; x.lineWidth = 1.9;
+      x.beginPath(); x.moveTo(trx - 2.6, -3.4); x.lineTo(-trx + 2.6, 3.4); x.stroke();
+      E(x, -2.5, 6.8, 3, 2.2, 0.3, L.bagC);
+    }
+    if (L.camera) {
+      x.fillStyle = "#2c2c34"; x.strokeStyle = INK; x.lineWidth = 1;
+      x.fillRect(2.2, 2.6, 3.4, 2.6); x.strokeRect(2.2, 2.6, 3.4, 2.6);
+    }
+    // rim light discret (soleil au sud-ouest de la ville)
+    x.strokeStyle = "rgba(255,236,190,0.34)"; x.lineWidth = 1.3;
+    x.beginPath(); x.ellipse(0, 0, trx - 0.9, trY - 0.9, 0, Math.PI * 0.75, Math.PI * 1.35); x.stroke();
+    // contour du torse par-dessus les détails
+    x.strokeStyle = INK; x.lineWidth = 1.3;
+    x.beginPath(); x.ellipse(0, 0, trx, trY, 0, 0, U.TAU); x.stroke();
 
-    // arme en main
-    if (opt.weapon && (pose === "aim" || opt.showWeapon)) {
-      ctx.fillStyle = "#14141c";
-      if (opt.weapon === "bat") {
-        ctx.save(); ctx.rotate(0.5);
-        ctx.fillStyle = "#a9805b";
-        ctx.fillRect(6, -2, 14, 3.2);
-        ctx.strokeRect(6, -2, 14, 3.2);
-        ctx.restore();
-      } else {
-        const len = opt.weapon === "smg" ? 9 : (opt.weapon === "shotgun" ? 13 : 7);
-        ctx.fillRect(9, -1.4, len, 2.8);
-        ctx.strokeRect(9, -1.4, len, 2.8);
+    /* --- arme tenue --- */
+    if (weapon && weapon !== "fist") {
+      x.strokeStyle = INK; x.lineWidth = 1.1;
+      if (weapon === "bat") {
+        x.save(); x.rotate(pose === "aim" ? 0.15 : 0.55);
+        x.fillStyle = "#b08a5e";
+        x.fillRect(6, -1.7, 14, 3.4); x.strokeRect(6, -1.7, 14, 3.4);
+        x.fillStyle = "#8a6a44";
+        x.fillRect(6, -1.7, 3.4, 3.4);
+        x.restore();
+      } else if (pose === "aim" || pose === "idle" || pose === "walk") {
+        const len = weapon === "smg" ? 9.5 : weapon === "shotgun" ? 13.5 : 7.5;
+        const gy = pose === "aim" ? 0 : 5.8;
+        x.fillStyle = "#20202c";
+        x.fillRect(pose === "aim" ? 11 : 4.6, gy - 1.4, len, 2.8);
+        x.strokeRect(pose === "aim" ? 11 : 4.6, gy - 1.4, len, 2.8);
+        if (weapon === "shotgun") {
+          x.fillStyle = "#6b4423";
+          x.fillRect((pose === "aim" ? 11 : 4.6) + len - 3.4, gy - 1.4, 3.4, 2.8);
+        }
       }
     }
 
-    // tête
-    ctx.fillStyle = look.skin;
-    ctx.beginPath(); ctx.arc(2.5, 0, 4.6, 0, U.TAU); ctx.fill(); ctx.stroke();
-    // cheveux (arrière de la tête)
-    ctx.fillStyle = look.hair;
-    ctx.beginPath(); ctx.arc(1.2, 0, 4.6, Math.PI * 0.55, Math.PI * 1.45); ctx.fill();
-    // casquette / bandana
-    if (look.hat) {
-      ctx.fillStyle = look.hat;
-      ctx.beginPath(); ctx.arc(2.0, 0, 4.8, Math.PI * 0.45, Math.PI * 1.55); ctx.fill(); ctx.stroke();
+    /* --- tête --- */
+    bakeHead(x, L);
+  }
+
+  function bakeHead(x, L) {
+    const hx = 2.6, r = 4.9;
+    E(x, hx, 0, r, r, 0, L.skin);
+    // oreilles
+    if (!L.hat || L.hat === "cap" || L.hat === "bandana") {
+      E(x, hx - 0.6, -r + 0.4, 1.1, 0.9, 0, L.skin, true);
+      E(x, hx - 0.6, r - 0.4, 1.1, 0.9, 0, L.skin, true);
+    }
+    // barbe / barbiche (pointe avant)
+    if (L.beard) {
+      x.fillStyle = L.beard;
+      x.beginPath();
+      x.moveTo(hx + r - 0.6, -1.8);
+      x.quadraticCurveTo(hx + r + 2.6, 0, hx + r - 0.6, 1.8);
+      x.closePath(); x.fill();
     }
 
+    const hairC = L.hair;
+    x.fillStyle = hairC;
+    switch (L.hairStyle) {
+      case "bald": {
+        // couronne de cheveux
+        x.beginPath(); x.arc(hx - 0.4, 0, r - 0.3, Math.PI * 0.72, Math.PI * 1.28); x.lineWidth = 2.1;
+        x.strokeStyle = hairC; x.stroke();
+        break;
+      }
+      case "buzz":
+        x.beginPath(); x.arc(hx - 0.6, 0, r - 0.4, Math.PI * 0.55, Math.PI * 1.45); x.fill();
+        break;
+      case "short":
+        x.beginPath(); x.arc(hx - 0.4, 0, r, Math.PI * 0.5, Math.PI * 1.5); x.fill();
+        x.beginPath(); x.ellipse(hx - 1.8, 0, 3.4, r - 0.6, 0, 0, U.TAU); x.fill();
+        break;
+      case "spiky": {
+        x.beginPath(); x.arc(hx - 0.6, 0, r - 0.2, Math.PI * 0.5, Math.PI * 1.5); x.fill();
+        for (let i = 0; i < 4; i++) {
+          const a = Math.PI * 0.62 + (i / 3) * Math.PI * 0.76;
+          const bx = hx - 0.6 + Math.cos(a) * (r - 0.6), by = Math.sin(a) * (r - 0.6);
+          x.beginPath();
+          x.moveTo(bx + Math.cos(a + 0.5), by + Math.sin(a + 0.5) * 1.4);
+          x.lineTo(bx + Math.cos(a) * 2.6, by + Math.sin(a) * 2.6);
+          x.lineTo(bx + Math.cos(a - 0.5), by + Math.sin(a - 0.5) * 1.4);
+          x.closePath(); x.fill();
+        }
+        break;
+      }
+      case "bob":
+        x.beginPath(); x.ellipse(hx - 0.8, 0, r + 0.7, r + 0.7, 0, Math.PI * 0.42, Math.PI * 1.58); x.fill();
+        x.strokeStyle = INK; x.lineWidth = 1.1; x.stroke();
+        break;
+      case "bun":
+        x.beginPath(); x.arc(hx - 0.4, 0, r - 0.2, Math.PI * 0.5, Math.PI * 1.5); x.fill();
+        E(x, hx - r - 1.6, 0, 2.2, 2.2, 0, hairC);
+        break;
+      case "pony":
+        x.beginPath(); x.arc(hx - 0.4, 0, r - 0.2, Math.PI * 0.5, Math.PI * 1.5); x.fill();
+        E(x, hx - r - 3, 0, 3.6, 1.9, 0, hairC);
+        break;
+      case "long":
+        x.beginPath(); x.ellipse(hx - 1.2, 0, r + 1, r + 1.3, 0, Math.PI * 0.4, Math.PI * 1.6); x.fill();
+        x.strokeStyle = INK; x.lineWidth = 1.1; x.stroke();
+        E(x, hx - r - 2.4, 0, 4, 3.2, 0, hairC, true);
+        break;
+    }
+
+    // capuche par-dessus les cheveux
+    if (L.hood) {
+      x.fillStyle = U.shade(L.top, -0.12);
+      x.beginPath(); x.arc(hx - 0.8, 0, r + 1, Math.PI * 0.42, Math.PI * 1.58); x.fill();
+      x.strokeStyle = INK; x.lineWidth = 1.15; x.stroke();
+    }
+
+    // chapeaux
+    x.strokeStyle = INK; x.lineWidth = 1.15;
+    switch (L.hat) {
+      case "cap":
+        x.fillStyle = L.hatC;
+        x.beginPath(); x.arc(hx - 0.4, 0, r - 0.1, Math.PI * 0.45, Math.PI * 1.55); x.fill(); x.stroke();
+        // visière
+        x.fillStyle = U.shade(L.hatC, -0.15);
+        x.beginPath();
+        x.moveTo(hx + 1.4, -3.4); x.quadraticCurveTo(hx + 6.4, 0, hx + 1.4, 3.4);
+        x.closePath(); x.fill(); x.stroke();
+        break;
+      case "police":
+        x.fillStyle = L.hatC;
+        E(x, hx - 0.4, 0, r - 0.1, r - 0.1, 0, L.hatC);
+        x.fillStyle = "#ffc857";
+        x.beginPath(); x.arc(hx + 1.6, 0, 1.2, 0, U.TAU); x.fill();
+        x.fillStyle = U.shade(L.hatC, -0.2);
+        x.beginPath();
+        x.moveTo(hx + 2.4, -3.2); x.quadraticCurveTo(hx + 6.6, 0, hx + 2.4, 3.2);
+        x.closePath(); x.fill(); x.stroke();
+        break;
+      case "straw":
+        x.fillStyle = L.hatC;
+        E(x, hx - 0.2, 0, r + 2.6, r + 2.6, 0, L.hatC);
+        x.strokeStyle = U.shade(L.hatC, -0.3); x.lineWidth = 1;
+        x.beginPath(); x.arc(hx - 0.2, 0, r - 0.6, 0, U.TAU); x.stroke();
+        x.strokeStyle = INK; x.lineWidth = 1.15;
+        E(x, hx - 0.2, 0, 2.3, 2.3, 0, U.shade(L.hatC, -0.12));
+        break;
+      case "hard":
+        x.fillStyle = L.hatC;
+        E(x, hx - 0.2, 0, r + 0.5, r + 0.5, 0, L.hatC);
+        x.strokeStyle = U.shade(L.hatC, -0.35); x.lineWidth = 1.4;
+        x.beginPath(); x.moveTo(hx - r + 0.6, 0); x.lineTo(hx + r - 0.6, 0); x.stroke();
+        break;
+      case "bandana": {
+        x.fillStyle = L.hatC;
+        x.beginPath(); x.arc(hx - 0.4, 0, r, Math.PI * 0.42, Math.PI * 1.58); x.fill(); x.stroke();
+        // dents de requin
+        x.fillStyle = "#e8f6f8";
+        for (let i = -1; i <= 1; i++) {
+          x.beginPath();
+          x.moveTo(hx - 2 , i * 2.4 - 0.9);
+          x.lineTo(hx - 4.2, i * 2.4);
+          x.lineTo(hx - 2, i * 2.4 + 0.9);
+          x.closePath(); x.fill();
+        }
+        // nœud
+        E(x, hx - r - 0.8, 0, 1.4, 2, 0, L.hatC, true);
+        break;
+      }
+      case "bob":
+        x.fillStyle = L.hatC;
+        E(x, hx - 0.3, 0, r + 1.8, r + 1.8, 0, L.hatC);
+        E(x, hx - 0.3, 0, r - 0.9, r - 0.9, 0, U.shade(L.hatC, -0.1));
+        break;
+    }
+
+    // lunettes de soleil (branche visible du dessus)
+    if (L.glasses) {
+      x.strokeStyle = "#14121a"; x.lineWidth = 1.7;
+      x.beginPath();
+      x.moveTo(hx + r - 1.2, -3.1);
+      x.quadraticCurveTo(hx + r + 1.4, 0, hx + r - 1.2, 3.1);
+      x.stroke();
+    }
+
+    // casque audio
+    if (L.headphones) {
+      x.strokeStyle = "#e05840"; x.lineWidth = 1.6;
+      x.beginPath(); x.arc(hx - 0.6, 0, r + 0.8, Math.PI * 0.62, Math.PI * 1.38); x.stroke();
+      E(x, hx - 0.6, -(r + 0.6), 1.5, 1.5, 0, "#e05840");
+      E(x, hx - 0.6, r + 0.6, 1.5, 1.5, 0, "#e05840");
+    }
+
+    // tatouage de nuque (Requins)
+    if (L.tattoo) {
+      x.strokeStyle = "rgba(20,60,70,0.8)"; x.lineWidth = 1;
+      x.beginPath();
+      x.moveTo(hx - r - 0.4, -1.4); x.lineTo(hx - r - 2, 0); x.lineTo(hx - r - 0.4, 1.4);
+      x.stroke();
+    }
+  }
+
+  function bakeDown(x, L) {
+    // au sol, membres relâchés
+    E(x, -6, 2.5, 4, 2.3, 0.5, L.bottom);
+    E(x, -5.4, -3, 4, 2.3, -0.4, L.bottom);
+    E(x, -8.6, 3.6, 2.1, 1.7, 0, L.shoes || "#20242c");
+    E(x, -8, -4.2, 2.1, 1.7, 0, L.shoes || "#20242c");
+    E(x, 1.5, 0, 7.6, 6.2, 0.12, L.top);
+    E(x, 3, -6.4, 3.2, 2.2, -0.5, U.shade(L.top, -0.18));
+    E(x, 1, 6.6, 3.2, 2.2, 0.6, U.shade(L.top, -0.18));
+    E(x, 9.6, -1, 4.4, 4.4, 0, L.skin);
+    x.fillStyle = L.hair;
+    x.beginPath(); x.arc(8.6, -1.4, 4.4, Math.PI * 0.5, Math.PI * 1.5); x.fill();
+  }
+
+  /**
+   * Dessine un piéton (API inchangée). Le contexte doit déjà être translaté
+   * sur sa position. angle : direction du regard ; walkPhase : phase de
+   * marche ; pose : idle|walk|punch|aim|down|sit|phone|cower.
+   */
+  function drawPed(ctx, look, angle, walkPhase, pose, opt) {
+    opt = opt || {};
+
+    // ombre portée (hors sprite : elle ne tourne pas avec le corps)
+    if (pose !== "down") {
+      ctx.fillStyle = "rgba(10,8,20,0.30)";
+      ctx.beginPath();
+      ctx.ellipse(1.5, 2.2, 8.6, 7, 0, 0, U.TAU);
+      ctx.fill();
+    }
+
+    let fi = 0;
+    if (pose === "walk") fi = Math.floor(walkPhase / (Math.PI / 2)) & 3;
+    else if (pose === "punch") fi = (opt.punchT || 0) > 0.45 ? 0 : 1;
+
+    const weapon = (pose === "aim" || opt.showWeapon) ? opt.weapon : null;
+    const frame = pedFrame(look, pose, fi, weapon);
+
+    ctx.save();
+    ctx.rotate(angle);
+    if (opt.scale && opt.scale !== 1) ctx.scale(opt.scale, opt.scale);
+    if (opt.alpha != null) ctx.globalAlpha = opt.alpha;
+    ctx.drawImage(frame, -FR / 2, -FR / 2, FR, FR);
     ctx.restore();
   }
 

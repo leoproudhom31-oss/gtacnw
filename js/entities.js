@@ -309,7 +309,8 @@
 
   function chaseUpdate(p, w, dt) {
     const t = p.aggro;
-    if (!t || t.hp <= 0 || t.busted) { p.state = "wander"; return; }
+    if (!t || t.hp <= 0 || t.busted || t.wreck) { p.state = "wander"; return; }
+    const targetIsVehicle = t.etype === "vehicle";
     const wp = WEAPONS[p.weapon];
 
     // les flics abandonnent si plus recherché
@@ -352,8 +353,9 @@
         p.angle = Math.atan2(t.y - p.y, t.x - p.x);
         if (p.attackT <= 0) {
           p.attackT = wp.rate + 0.25;
-          if (U.dist(p.x, p.y, t.x, t.y) < wp.range + 8) {
-            w.hurtPlayer(wp.dmg * (p.kind === "cop" ? 0.6 : 1), p);
+          if (U.dist(p.x, p.y, t.x, t.y) < wp.range + (targetIsVehicle ? 26 : 8)) {
+            if (targetIsVehicle) damageVehicle(t, w, wp.dmg * 0.8, p);
+            else w.hurtPlayer(wp.dmg * (p.kind === "cop" ? 0.6 : 1), p);
             G.Audio.play("punchHit");
           }
         }
@@ -1090,6 +1092,49 @@
     if (ai.mode === "roadblock") {
       // barrage : rester en travers, moteur coupé
       v.throttle = 0; v.steer = 0;
+      return;
+    }
+
+    if (ai.mode === "route") {
+      // véhicule scripté : suit une liste de jalons routiers (missions)
+      if (updateStuckDetector(v, ai, dt)) return;
+      if (!ai.wps || ai.wpi >= ai.wps.length) {
+        ai.done = true;
+        v.throttle = vehicleSpeed(v) > 8 ? -0.8 : 0;
+        v.steer = 0;
+        return;
+      }
+      // escorte : ne pas semer son protecteur
+      if (ai.escort && U.dist(v.x, v.y, w.player.x, w.player.y) > 620) {
+        v.throttle = vehicleSpeed(v) > 10 ? -0.6 : 0;
+        ai.waiting = true;
+        return;
+      }
+      ai.waiting = false;
+      const wp = ai.wps[ai.wpi];
+      steerTowards(v, wp.x, wp.y, dt);
+      if (U.dist(v.x, v.y, wp.x, wp.y) < 42) ai.wpi++;
+      const sp2 = vehicleSpeed(v);
+      v.throttle = sp2 < (ai.cruise || 95) ? 0.7 : 0;
+      return;
+    }
+
+    if (ai.mode === "ram") {
+      // bélier : fonce sur une cible arbitraire (van d'escorte, joueur…)
+      if (updateStuckDetector(v, ai, dt)) return;
+      const t = ai.targetRef;
+      if (!t || t.wreck || t.hp <= 0) {
+        ai.mode = "cruise"; ai.cruise = 120; ai.tgtX = null;
+        return;
+      }
+      const d = U.dist(v.x, v.y, t.x, t.y);
+      const lead = U.clamp(d / 300, 0, 1);
+      steerTowards(v, t.x + (t.vx || 0) * lead, t.y + (t.vy || 0) * lead, dt);
+      v.throttle = 1;
+      if (d > 90 && vehicleSpeed(v) < 20) {
+        ai.blockedT += dt;
+        if (ai.blockedT > 1.6) { v.throttle = -0.8; v.steer = Math.random() < 0.5 ? -1 : 1; if (ai.blockedT > 2.6) ai.blockedT = 0; }
+      } else ai.blockedT = 0;
       return;
     }
 

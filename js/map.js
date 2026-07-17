@@ -1154,7 +1154,7 @@
     if (b.sign) {
       // enseigne sur l'avant du toit (côté sud)
       const sx = (tops[3].x + tops[2].x) / 2, sy = (tops[3].y + tops[2].y) / 2;
-      ctx.font = "bold " + Math.max(11, 15 * sc) + "px 'Trebuchet MS', sans-serif";
+      ctx.font = "bold " + Math.max(11, 15 * sc) + "px 'Rubik','Trebuchet MS',sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       const wtxt = ctx.measureText(b.sign.text).width + 12;
       ctx.fillStyle = "rgba(18,14,28,0.88)";

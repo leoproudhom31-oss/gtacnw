@@ -131,10 +131,10 @@
     ctx.fillRect(0, 0, viewW, viewH);
     ctx.textAlign = "center";
     ctx.fillStyle = "#2ee6a8";
-    ctx.font = "bold 46px 'Trebuchet MS', sans-serif";
+    ctx.font = "bold 46px 'Rubik','Trebuchet MS',sans-serif";
     ctx.fillText("PAUSE", viewW / 2, viewH / 2 - 80);
     ctx.fillStyle = "#f5ead6";
-    ctx.font = "15px 'Trebuchet MS', sans-serif";
+    ctx.font = "15px 'Rubik','Trebuchet MS',sans-serif";
     const lines = [
       "Z Q S D / W A S D / flèches : bouger · conduire",
       "Maj : sprint   ·   E / Entrée : monter, descendre, interagir",
@@ -146,7 +146,7 @@
     ];
     lines.forEach((l, i) => ctx.fillText(l, viewW / 2, viewH / 2 - 30 + i * 26));
     ctx.fillStyle = "#ffc857";
-    ctx.font = "13px 'Trebuchet MS', sans-serif";
+    ctx.font = "13px 'Rubik','Trebuchet MS',sans-serif";
     ctx.fillText("JADE HARBOR — Chroniques du Lotus Noir · v1.0", viewW / 2, viewH - 40);
   }
 

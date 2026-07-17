@@ -106,7 +106,7 @@
 
     // PNJ fixes : Wu devant le salon de thé, Long au garage
     spawnStaticNpc("wu", Mp.POI.teahouse.x - 30, Mp.POI.teahouse.y - 6);
-    spawnStaticNpc("lotus", Mp.POI.garage.x + 34, Mp.POI.garage.y - 6);
+    spawnStaticNpc("mechanic", Mp.POI.garage.x + 34, Mp.POI.garage.y - 6);
 
     W.state = "play";
   }
@@ -169,6 +169,7 @@
   };
 
   W.hurtPlayer = function (dmg, src) {
+    G.Missions.noteDamage(dmg);
     E().hurtPlayer(W.player, W, dmg);
   };
 
@@ -327,6 +328,11 @@
 
   W.onWasted = function () {
     if (W.state !== "play") return;
+    // en mission avec point de contrôle : reprise directe, pas d'hôpital
+    if (G.Missions.tryCheckpointRestart(W, "Jin est tombé — la mission reprend.")) {
+      G.Audio.play("wasted");
+      return;
+    }
     W.state = "dead";
     W._stateT = 3.2;
     G.Audio.play("wasted");
@@ -337,6 +343,9 @@
 
   function onBusted() {
     if (W.state !== "play") return;
+    if (G.Missions.tryCheckpointRestart(W, "Jin a filé entre les doigts de la police — la mission reprend.")) {
+      return;
+    }
     W.state = "busted";
     W._stateT = 3.2;
     G.Audio.stopEngine();
@@ -371,6 +380,18 @@
   W.clearMissionPeds = function () {
     for (const p of W.peds) if (p.missionTag && !p.staticNpc) p.dead = true, p.corpseT = 0.5;
     for (const pk of W.pickups) if (pk.missionTag) pk.taken = true;
+  };
+
+  // retire les véhicules de mission (van filé, cibles, vagues d'assaut) —
+  // la cargaison de la m2 et le véhicule du joueur restent en place
+  W.clearMissionVehicles = function () {
+    for (let i = W.vehicles.length - 1; i >= 0; i--) {
+      const v = W.vehicles[i];
+      if (v.missionTag && v.missionTag !== "cargo" && v.driverKind !== "player") {
+        G.Audio.setSiren(v.id, false);
+        W.vehicles.splice(i, 1);
+      }
+    }
   };
 
   /* =========================================================

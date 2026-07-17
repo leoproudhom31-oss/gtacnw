@@ -44,6 +44,7 @@
   };
 
   HUD.setObjective = function (text) { HUD.objective = text; };
+  HUD.setAux = function (text) { HUD.auxText = text; };
   HUD.setTimer = function (t) { HUD.timer = t; };
   HUD.setMarker = function (pos) { HUD.markerPos = pos; };
 
@@ -126,7 +127,7 @@
 
     // objectif
     if (HUD.objective) {
-      ctx.font = "bold 15px 'Trebuchet MS', sans-serif";
+      ctx.font = "bold 15px 'Rubik','Trebuchet MS',sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       const tw = ctx.measureText(HUD.objective).width + 34;
       const y = H - 44;
@@ -138,9 +139,21 @@
       ctx.fillText(HUD.objective, W / 2, y + 1);
     }
 
+    // ligne auxiliaire de mission (état du van, distance de filature…)
+    if (HUD.auxText) {
+      ctx.font = "bold 13px 'Rubik','Trebuchet MS',sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const tw2 = ctx.measureText(HUD.auxText).width + 24;
+      const y2 = H - 74;
+      ctx.fillStyle = "rgba(18,14,28,0.72)";
+      roundedRect(ctx, W / 2 - tw2 / 2, y2 - 12, tw2, 24, 5); ctx.fill();
+      ctx.fillStyle = HUD.auxText.startsWith("⚠") ? "#ff5340" : "#ffc857";
+      ctx.fillText(HUD.auxText, W / 2, y2 + 1);
+    }
+
     // timer
     if (HUD.timer >= 0) {
-      ctx.font = "bold 34px 'Trebuchet MS', monospace";
+      ctx.font = "bold 34px 'Rubik','Trebuchet MS',monospace";
       ctx.textAlign = "center";
       const txt = U.fmtTime(HUD.timer);
       ctx.fillStyle = "rgba(18,14,28,0.6)";
@@ -153,7 +166,7 @@
     if (HUD.toastT > 0 && HUD.toastText) {
       const a = Math.min(1, HUD.toastT / 0.4);
       ctx.globalAlpha = a;
-      ctx.font = "14px 'Trebuchet MS', sans-serif";
+      ctx.font = "14px 'Rubik','Trebuchet MS',sans-serif";
       ctx.textAlign = "center";
       const tw = ctx.measureText(HUD.toastText).width + 28;
       ctx.fillStyle = "rgba(18,14,28,0.85)";
@@ -167,7 +180,7 @@
     if (HUD.tutoT > 0 && HUD.tutoText) {
       const a = Math.min(1, HUD.tutoT / 0.4);
       ctx.globalAlpha = a;
-      ctx.font = "13px 'Trebuchet MS', sans-serif";
+      ctx.font = "13px 'Rubik','Trebuchet MS',sans-serif";
       ctx.textAlign = "left";
       const lines = wrapText(ctx, HUD.tutoText, 250);
       const bw = 276, bh = lines.length * 18 + 34;
@@ -177,10 +190,10 @@
       ctx.strokeStyle = "#ffc857"; ctx.lineWidth = 1.5;
       roundedRect(ctx, bx, by, bw, bh, 8); ctx.stroke();
       ctx.fillStyle = "#ffc857";
-      ctx.font = "bold 12px 'Trebuchet MS', sans-serif";
+      ctx.font = "bold 12px 'Rubik','Trebuchet MS',sans-serif";
       ctx.fillText("◆ LEÇON DE JADE HARBOR", bx + 13, by + 18);
       ctx.fillStyle = "#f5ead6";
-      ctx.font = "13px 'Trebuchet MS', sans-serif";
+      ctx.font = "13px 'Rubik','Trebuchet MS',sans-serif";
       lines.forEach((l, i) => ctx.fillText(l, bx + 13, by + 40 + i * 18));
       ctx.globalAlpha = 1;
     }
@@ -189,7 +202,7 @@
     if (HUD.districtT > 0 && HUD.district) {
       const a = Math.min(1, HUD.districtT / 0.5) * Math.min(1, (3.4 - HUD.districtT) / 0.4 + 0.2);
       ctx.globalAlpha = U.clamp(a, 0, 1);
-      ctx.font = "italic bold 24px 'Trebuchet MS', serif";
+      ctx.font = "italic bold 24px 'Rubik','Trebuchet MS',serif";
       ctx.textAlign = "right";
       ctx.fillStyle = "#12101a";
       ctx.fillText(HUD.district, W - 18 + 2, H - 26 + 2);
@@ -205,14 +218,14 @@
       ctx.globalAlpha = a;
       ctx.fillStyle = "rgba(18,14,28,0.55)";
       ctx.fillRect(0, H * 0.30, W, 110);
-      ctx.font = "bold 44px 'Trebuchet MS', sans-serif";
+      ctx.font = "bold 44px 'Rubik','Trebuchet MS',sans-serif";
       ctx.textAlign = "center";
       ctx.fillStyle = "#12101a";
       ctx.fillText(HUD.banner, W / 2 + 3, H * 0.30 + 58 + 3);
       ctx.fillStyle = HUD.bannerColor;
       ctx.fillText(HUD.banner, W / 2, H * 0.30 + 58);
       if (HUD.bannerSub) {
-        ctx.font = "17px 'Trebuchet MS', sans-serif";
+        ctx.font = "17px 'Rubik','Trebuchet MS',sans-serif";
         ctx.fillStyle = "#f5ead6";
         ctx.fillText(HUD.bannerSub, W / 2, H * 0.30 + 90);
       }
@@ -384,7 +397,7 @@
   function drawMoneyWanted(ctx, w, W, H) {
     const pl = w.player;
     // argent
-    ctx.font = "bold 22px 'Trebuchet MS', monospace";
+    ctx.font = "bold 22px 'Rubik','Trebuchet MS',monospace";
     ctx.textAlign = "right";
     ctx.textBaseline = "top";
     ctx.fillStyle = "#12101a";
@@ -393,7 +406,7 @@
     ctx.fillText(U.fmtMoney(pl.money), W - 16, 16);
     if (HUD.moneyPopT > 0) {
       ctx.globalAlpha = Math.min(1, HUD.moneyPopT);
-      ctx.font = "bold 16px 'Trebuchet MS', monospace";
+      ctx.font = "bold 16px 'Rubik','Trebuchet MS',monospace";
       ctx.fillStyle = "#ffc857";
       ctx.fillText("+" + HUD.moneyPop + " $", W - 16, 44 - (1.6 - HUD.moneyPopT) * 10);
       ctx.globalAlpha = 1;
@@ -427,7 +440,7 @@
     const pl = w.player;
     const wp = G.Ent.WEAPONS[pl.weapon];
     const x = W - 16, y = 84;
-    ctx.font = "bold 14px 'Trebuchet MS', sans-serif";
+    ctx.font = "bold 14px 'Rubik','Trebuchet MS',sans-serif";
     ctx.textAlign = "right"; ctx.textBaseline = "top";
     ctx.fillStyle = "#f5ead6";
     let label = wp.name;
@@ -463,13 +476,13 @@
     roundedRect(ctx, bx + 12, by + 12, 94, 94, 8); ctx.stroke();
 
     // nom
-    ctx.font = "bold 15px 'Trebuchet MS', sans-serif";
+    ctx.font = "bold 15px 'Rubik','Trebuchet MS',sans-serif";
     ctx.textAlign = "left"; ctx.textBaseline = "top";
     ctx.fillStyle = "#2ee6a8";
     ctx.fillText(line.name, bx + 120, by + 14);
 
     // texte machine à écrire
-    ctx.font = "15px 'Trebuchet MS', sans-serif";
+    ctx.font = "15px 'Rubik','Trebuchet MS',sans-serif";
     ctx.fillStyle = "#f5ead6";
     const shown = line.text.slice(0, Math.floor(d.chars));
     const lines = wrapText(ctx, shown, bw - 140);
@@ -477,7 +490,7 @@
 
     // indication
     if (d.chars >= line.text.length) {
-      ctx.font = "12px 'Trebuchet MS', sans-serif";
+      ctx.font = "12px 'Rubik','Trebuchet MS',sans-serif";
       ctx.fillStyle = "rgba(255,200,87," + (0.5 + Math.sin(w.time * 5) * 0.4) + ")";
       ctx.textAlign = "right";
       ctx.fillText("[E] continuer  (" + (d.i + 1) + "/" + d.lines.length + ")", bx + bw - 14, by + bh - 20);
@@ -508,7 +521,7 @@
       ctx.stroke();
     }
     // POI
-    ctx.font = "11px 'Trebuchet MS', sans-serif";
+    ctx.font = "11px 'Rubik','Trebuchet MS',sans-serif";
     ctx.textAlign = "left";
     const pois = [
       ["teahouse", "Salon de thé", "#ffc857"],
@@ -543,11 +556,11 @@
     ctx.closePath(); ctx.fill();
     ctx.restore();
 
-    ctx.font = "bold 20px 'Trebuchet MS', sans-serif";
+    ctx.font = "bold 20px 'Rubik','Trebuchet MS',sans-serif";
     ctx.textAlign = "center";
     ctx.fillStyle = "#ffc857";
     ctx.fillText("JADE HARBOR — carte de l'île", W / 2, my - 16);
-    ctx.font = "13px 'Trebuchet MS', sans-serif";
+    ctx.font = "13px 'Rubik','Trebuchet MS',sans-serif";
     ctx.fillStyle = "#c9bda6";
     ctx.fillText("[C] fermer la carte", W / 2, my + size + 22);
   }
