@@ -19,7 +19,7 @@
   const WU = (t) => ({ who: "wu", name: "Oncle Wu", text: t });
   const RADIO = (t) => ({ who: "wu", name: "Wu (radio)", text: t });
   const SHARK = (t) => ({ who: "shark", name: "Requin du Port", text: t });
-  const LONG = (t) => ({ who: "lotus", name: "Long, le mécano", text: t });
+  const LONG = (t) => ({ who: "long", name: "Long, le mécano", text: t });
 
   const MISSIONS = [
     /* -------------------------------------------------------

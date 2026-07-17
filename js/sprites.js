@@ -562,10 +562,60 @@
                       "#7f8c8d", "#2c3e50", "#f5f0e6", "#a04000", "#5d6d7e", "#7d3c98"];
 
   const vehicleCache = new Map();
-  const VSS = 3; // suréchantillonnage : les voitures sont cuites une fois
+  const VSS = 4; // suréchantillonnage : les voitures sont cuites une fois
                  // pour toutes, la mémoire supplémentaire est négligeable
                  // (quelques dizaines de combinaisons type × couleur) —
-                 // autant les cuire nettes pour les écrans HiDPI et le zoom.
+                 // autant les cuire très nettes pour le HiDPI et le zoom.
+
+  // chemin de carrosserie : nez avant (droite/+x) plus arrondi que l'arrière
+  function carBodyPath(ctx, x, y, w, h, rF, rR) {
+    ctx.beginPath();
+    ctx.moveTo(x + rR, y);
+    ctx.lineTo(x + w - rF, y);
+    ctx.arcTo(x + w, y, x + w, y + rF, rF);
+    ctx.lineTo(x + w, y + h - rF);
+    ctx.arcTo(x + w, y + h, x + w - rF, y + h, rF);
+    ctx.lineTo(x + rR, y + h);
+    ctx.arcTo(x, y + h, x, y + h - rR, rR);
+    ctx.lineTo(x, y + rR);
+    ctx.arcTo(x, y, x + rR, y, rR);
+    ctx.closePath();
+  }
+
+  // vitre : verre teinté avec dégradé + streak de reflet diagonal
+  function glass(ctx, x, y, w, h, r) {
+    const g = ctx.createLinearGradient(x, y, x, y + h);
+    g.addColorStop(0, "#8fb8cc");
+    g.addColorStop(0.45, "#3f5566");
+    g.addColorStop(0.55, "#334455");
+    g.addColorStop(1, "#6f97ab");
+    ctx.fillStyle = g;
+    roundRect(ctx, x, y, w, h, r); ctx.fill();
+    // reflet
+    ctx.save();
+    roundRect(ctx, x, y, w, h, r); ctx.clip();
+    ctx.fillStyle = "rgba(220,240,250,0.28)";
+    ctx.beginPath();
+    ctx.moveTo(x, y + h * 0.18);
+    ctx.lineTo(x + w, y - h * 0.1);
+    ctx.lineTo(x + w, y + h * 0.32);
+    ctx.lineTo(x, y + h * 0.58);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = "rgba(18,14,28,0.55)"; ctx.lineWidth = 0.8;
+    roundRect(ctx, x, y, w, h, r); ctx.stroke();
+  }
+
+  function wheel(ctx, cx, cy, ln, wd) {
+    // pneu
+    ctx.fillStyle = "#15151c";
+    roundRect(ctx, cx - ln / 2, cy - wd / 2, ln, wd, wd * 0.35); ctx.fill();
+    // jante
+    ctx.fillStyle = "#3a3d45";
+    roundRect(ctx, cx - ln / 2 + 1.4, cy - wd / 2 + 0.9, ln - 2.8, wd - 1.8, 1); ctx.fill();
+    ctx.fillStyle = "#565a63";
+    ctx.fillRect(cx - 0.7, cy - wd / 2 + 0.9, 1.4, wd - 1.8);
+  }
 
   function vehicleSprite(type, color) {
     const key = type + "|" + color;
@@ -573,101 +623,168 @@
     if (c) return c;
 
     const def = VEHICLE_DEFS[type];
-    const pad = 6;
+    const pad = 7;
     const lw = def.L + pad * 2, lh = def.W + pad * 2; // dimensions logiques (unités monde)
     c = document.createElement("canvas");
     c.width = Math.round(lw * VSS);
     c.height = Math.round(lh * VSS);
     c.lw = lw; c.lh = lh;
-    const x = pad, y = pad, L = def.L, W = def.W;
+    const L = def.L, W = def.W;
     const ctx = c.getContext("2d");
     ctx.scale(VSS, VSS);
-    ctx.translate(x, y);
+    ctx.translate(pad, pad);
+    ctx.lineJoin = "round";
 
     const body = def.body || color;
-    const dark = U.shade(body, -0.35);
-    const lite = U.shade(body, 0.25);
+    const dark = U.shade(body, -0.34);
+    const darker = U.shade(body, -0.5);
+    const lite = U.shade(body, 0.28);
+    const c0 = L * def.cabin[0], c1 = L * def.cabin[1];
 
-    // roues (dépassent légèrement)
-    ctx.fillStyle = "#101018";
-    const wy = [-1.5, W - 3.5];
-    for (const yy of wy) {
-      ctx.fillRect(L * 0.12, yy, 8, 5);
-      ctx.fillRect(L * 0.72, yy, 8, 5);
+    /* ---------- roues (sous la caisse, dépassent sur les côtés) ---------- */
+    const axF = L * 0.75, axR = L * 0.17;
+    for (const cx of [axR, axF]) {
+      wheel(ctx, cx, -0.4, 9, 4.4);
+      wheel(ctx, cx, W + 0.4, 9, 4.4);
     }
 
-    // carrosserie
-    ctx.fillStyle = body;
-    ctx.strokeStyle = INK; ctx.lineWidth = 2;
-    roundRect(ctx, 0, 0, L, W, 6); ctx.fill(); ctx.stroke();
+    /* ---------- ombre de contact sous la caisse ---------- */
+    ctx.fillStyle = "rgba(8,6,14,0.28)";
+    roundRect(ctx, 1.5, 1.5, L - 1, W - 1, 7); ctx.fill();
 
-    // capot / coffre : nuances
-    ctx.fillStyle = lite;
-    roundRect(ctx, 2, 2, L - 4, 4, 3); ctx.fill();
+    /* ---------- carrosserie : base + dégradé directionnel ---------- */
+    const rF = W * 0.42, rR = W * 0.30;
+    carBodyPath(ctx, 0, 0, L, W, rF, rR);
+    const bg = ctx.createLinearGradient(0, -1, 0, W + 1);
+    bg.addColorStop(0, lite);              // bord éclairé (haut)
+    bg.addColorStop(0.28, U.shade(body, 0.08));
+    bg.addColorStop(0.5, body);
+    bg.addColorStop(0.78, U.shade(body, -0.14));
+    bg.addColorStop(1, dark);              // bord ombré (bas)
+    ctx.fillStyle = bg;
+    ctx.fill();
 
-    // cabine + vitres
-    const c0 = L * def.cabin[0], c1 = L * def.cabin[1];
+    // ligne de reflet longitudinale (arête du capot au coffre)
+    ctx.save();
+    carBodyPath(ctx, 0, 0, L, W, rF, rR); ctx.clip();
+    ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(3, W * 0.34); ctx.lineTo(L - 3, W * 0.34); ctx.stroke();
+    ctx.strokeStyle = "rgba(10,8,18,0.18)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(3, W * 0.68); ctx.lineTo(L - 3, W * 0.68); ctx.stroke();
+    // séparations capot / cabine / coffre
+    ctx.strokeStyle = "rgba(12,9,20,0.32)"; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(c0 - 1, 1.5); ctx.lineTo(c0 - 1, W - 1.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(c1 + 1, 1.5); ctx.lineTo(c1 + 1, W - 1.5); ctx.stroke();
+    ctx.restore();
+
+    /* ---------- toit + vitres ---------- */
+    // bloc cabine (toit)
+    const roofG = ctx.createLinearGradient(0, 1, 0, W - 1);
+    roofG.addColorStop(0, U.shade(body, 0.12));
+    roofG.addColorStop(0.5, U.shade(body, -0.06));
+    roofG.addColorStop(1, U.shade(body, -0.24));
+    ctx.fillStyle = roofG;
+    roundRect(ctx, c0 + 2.5, 2.4, (c1 - c0) - 5, W - 4.8, 3.2); ctx.fill();
+    ctx.strokeStyle = "rgba(12,9,20,0.4)"; ctx.lineWidth = 0.8;
+    roundRect(ctx, c0 + 2.5, 2.4, (c1 - c0) - 5, W - 4.8, 3.2); ctx.stroke();
+    // pare-brise (avant = +x) et lunette arrière
+    glass(ctx, c1 - 3.5, 2.6, 5.5, W - 5.2, 2);
+    glass(ctx, c0 - 1.5, 2.8, 4.5, W - 5.6, 2);
+    // vitres latérales
+    glass(ctx, c0 + 3, 1.6, (c1 - c0) - 6, 2.4, 1);
+    glass(ctx, c0 + 3, W - 4, (c1 - c0) - 6, 2.4, 1);
+
+    /* ---------- pare-chocs avant / arrière ---------- */
+    ctx.fillStyle = "#2a2d34";
+    roundRect(ctx, L - 2.4, 3.5, 2.8, W - 7, 1.4); ctx.fill();
+    roundRect(ctx, -0.4, 4, 2.4, W - 8, 1.4); ctx.fill();
+
+    /* ---------- phares (halo) et feux arrière ---------- */
+    ctx.fillStyle = "#fff4cf";
+    roundRect(ctx, L - 3.4, 3.2, 2.2, 3, 1); ctx.fill();
+    roundRect(ctx, L - 3.4, W - 6.2, 2.2, 3, 1); ctx.fill();
+    ctx.fillStyle = "rgba(255,240,190,0.5)";
+    ctx.beginPath(); ctx.arc(L - 2, 4.7, 2.4, 0, U.TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(L - 2, W - 4.7, 2.4, 0, U.TAU); ctx.fill();
+    ctx.fillStyle = "#d0342b";
+    roundRect(ctx, 0.2, 3.4, 1.8, 2.8, 0.8); ctx.fill();
+    roundRect(ctx, 0.2, W - 6.2, 1.8, 2.8, 0.8); ctx.fill();
+
+    /* ---------- rétroviseurs ---------- */
     ctx.fillStyle = dark;
-    roundRect(ctx, c0 - 2, 1.5, (c1 - c0) + 4, W - 3, 4); ctx.fill();
-    ctx.fillStyle = "#9fd8e8";
-    // pare-brise (avant = +x)
-    roundRect(ctx, c1 - 3, 2.5, 5, W - 5, 2); ctx.fill();
-    // lunette arrière
-    roundRect(ctx, c0 - 2, 3, 4, W - 6, 2); ctx.fill();
-    // toit
-    ctx.fillStyle = body;
-    roundRect(ctx, c0 + 3, 2.5, (c1 - c0) - 8, W - 5, 3); ctx.fill();
-    ctx.strokeStyle = "rgba(20,16,32,0.5)"; ctx.lineWidth = 1;
-    roundRect(ctx, c0 + 3, 2.5, (c1 - c0) - 8, W - 5, 3); ctx.stroke();
+    ctx.strokeStyle = INK; ctx.lineWidth = 0.7;
+    roundRect(ctx, c1 - 2, -1.4, 3, 2, 0.8); ctx.fill(); ctx.stroke();
+    roundRect(ctx, c1 - 2, W - 0.6, 3, 2, 0.8); ctx.fill(); ctx.stroke();
 
-    // phares / feux
-    ctx.fillStyle = "#ffe9a8";
-    ctx.fillRect(L - 2.5, 2, 2.5, 4);
-    ctx.fillRect(L - 2.5, W - 6, 2.5, 4);
-    ctx.fillStyle = "#e74c3c";
-    ctx.fillRect(0, 2, 2.5, 4);
-    ctx.fillRect(0, W - 6, 2.5, 4);
+    /* ---------- contour encre général ---------- */
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.4;
+    carBodyPath(ctx, 0, 0, L, W, rF, rR); ctx.stroke();
 
-    // spécifiques
+    /* ---------- spécifiques par type ---------- */
     if (type === "taxi") {
-      ctx.fillStyle = "#1a1424";
-      ctx.fillRect(c0 + (c1 - c0) / 2 - 5, W / 2 - 3, 10, 6);
-      ctx.fillStyle = "#ffe9a8";
-      ctx.font = "bold 5px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("TAXI", c0 + (c1 - c0) / 2, W / 2 + 0.5);
+      ctx.fillStyle = "#141018";
+      roundRect(ctx, c0 + (c1 - c0) / 2 - 6, W / 2 - 3, 12, 6, 1.2); ctx.fill();
+      ctx.fillStyle = "#ffd54a";
+      ctx.font = "bold 5px 'Rubik',sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("TAXI", c0 + (c1 - c0) / 2, W / 2 + 0.4);
+      // damier sur les flancs
+      ctx.fillStyle = "#141018";
+      for (let i = 0; i < 6; i++) ctx.fillRect(6 + i * 5.5, i % 2 ? 0.6 : W - 2, 2.6, 1.4);
     }
     if (type === "police") {
-      // bande latérale + toit
-      ctx.fillStyle = "#1f3a63";
-      ctx.fillRect(4, 0.5, L - 8, 4);
-      ctx.fillRect(4, W - 4.5, L - 8, 4);
+      // livrée bicolore + toit bleu nuit
+      ctx.fillStyle = "#22345c";
+      roundRect(ctx, c0 + 3, 3, (c1 - c0) - 6, W - 6, 2.5); ctx.fill();
+      ctx.fillStyle = "#1c2c4c";
+      ctx.fillRect(3, 1, L - 6, 3.2);
+      ctx.fillRect(3, W - 4.2, L - 6, 3.2);
+      // barre de gyrophares sur le toit
+      ctx.fillStyle = "#101018";
+      roundRect(ctx, L * 0.5 - 5, W / 2 - 2.6, 10, 5.2, 1); ctx.fill();
+      ctx.fillStyle = "#ff3b3b"; roundRect(ctx, L * 0.5 - 4.4, W / 2 - 2, 4, 4, 0.8); ctx.fill();
+      ctx.fillStyle = "#3b8bff"; roundRect(ctx, L * 0.5 + 0.4, W / 2 - 2, 4, 4, 0.8); ctx.fill();
       ctx.fillStyle = "#ffc857";
-      ctx.font = "bold 6px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.save(); ctx.translate(L * 0.5, W / 2); ctx.fillText("警", 0, 0.5); ctx.restore();
+      ctx.font = "bold 5px 'Rubik',sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("警", L * 0.28, W / 2 + 0.4);
     }
     if (type === "sport") {
-      // aileron
-      ctx.fillStyle = dark;
-      ctx.fillRect(1, 1.5, 4, W - 3);
-      ctx.strokeStyle = INK; ctx.lineWidth = 1.2;
-      ctx.strokeRect(1, 1.5, 4, W - 3);
-      // double bande
-      ctx.fillStyle = "rgba(245,240,230,0.85)";
-      ctx.fillRect(6, W / 2 - 3.5, L - 10, 2.4);
-      ctx.fillRect(6, W / 2 + 1.1, L - 10, 2.4);
+      // aileron arrière + supports
+      ctx.fillStyle = darker;
+      roundRect(ctx, -0.5, 1.5, 4.5, W - 3, 1.2); ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 1;
+      roundRect(ctx, -0.5, 1.5, 4.5, W - 3, 1.2); ctx.stroke();
+      ctx.fillStyle = "#101018";
+      ctx.fillRect(3.5, W * 0.32, 2, 1.6); ctx.fillRect(3.5, W * 0.62, 2, 1.6);
+      // bandes de course centrales
+      ctx.fillStyle = "rgba(248,244,236,0.9)";
+      ctx.fillRect(6, W / 2 - 3.4, L - 12, 2.2);
+      ctx.fillRect(6, W / 2 + 1.2, L - 12, 2.2);
+      // prise d'air sur le capot
+      ctx.fillStyle = "rgba(10,8,18,0.45)";
+      roundRect(ctx, c1 + 2, W / 2 - 2, 4, 4, 1); ctx.fill();
     }
     if (type === "van") {
-      ctx.fillStyle = U.shade(body, -0.15);
-      ctx.fillRect(4, 4, L * 0.45, W - 8);
-      ctx.strokeStyle = "rgba(20,16,32,0.4)";
-      ctx.strokeRect(4, 4, L * 0.45, W - 8);
+      // compartiment de charge nervuré
+      ctx.fillStyle = U.shade(body, -0.1);
+      roundRect(ctx, 3.5, 3.5, L * 0.44, W - 7, 2); ctx.fill();
+      ctx.strokeStyle = "rgba(12,9,20,0.35)"; ctx.lineWidth = 0.7;
+      for (let i = 1; i < 4; i++) {
+        const lx = 3.5 + (L * 0.44) * (i / 4);
+        ctx.beginPath(); ctx.moveTo(lx, 4); ctx.lineTo(lx, W - 4); ctx.stroke();
+      }
+      roundRect(ctx, 3.5, 3.5, L * 0.44, W - 7, 2); ctx.stroke();
     }
     if (type === "pickup") {
-      // benne
-      ctx.fillStyle = dark;
-      roundRect(ctx, 2, 2.5, L * 0.34, W - 5, 2); ctx.fill();
-      ctx.strokeStyle = INK; ctx.lineWidth = 1.2;
-      roundRect(ctx, 2, 2.5, L * 0.34, W - 5, 2); ctx.stroke();
+      // benne ouverte avec bords
+      const bg2 = ctx.createLinearGradient(0, 2, 0, W - 2);
+      bg2.addColorStop(0, U.shade(body, -0.12));
+      bg2.addColorStop(1, U.shade(body, -0.38));
+      ctx.fillStyle = bg2;
+      roundRect(ctx, 2.5, 3, L * 0.34, W - 6, 1.5); ctx.fill();
+      ctx.fillStyle = "rgba(8,6,14,0.4)";
+      roundRect(ctx, 4, 4.4, L * 0.34 - 3, W - 8.8, 1); ctx.fill();
+      ctx.strokeStyle = INK; ctx.lineWidth = 1;
+      roundRect(ctx, 2.5, 3, L * 0.34, W - 6, 1.5); ctx.stroke();
     }
 
     vehicleCache.set(key, c);
@@ -1067,133 +1184,429 @@
                  // le coût mémoire est négligeable et le gain de netteté
                  // très visible en gros plan de dialogue.
 
+  /* ---------- système de visage détaillé ---------- */
+
+  function headPath(g, cx, cy, rw, rh) {
+    g.beginPath();
+    g.moveTo(cx - rw, cy - rh * 0.32);
+    g.quadraticCurveTo(cx - rw, cy - rh, cx, cy - rh);
+    g.quadraticCurveTo(cx + rw, cy - rh, cx + rw, cy - rh * 0.32);
+    g.quadraticCurveTo(cx + rw, cy + rh * 0.5, cx + rw * 0.52, cy + rh * 0.9);
+    g.quadraticCurveTo(cx, cy + rh * 1.06, cx - rw * 0.52, cy + rh * 0.9);
+    g.quadraticCurveTo(cx - rw, cy + rh * 0.5, cx - rw, cy - rh * 0.32);
+    g.closePath();
+  }
+
+  // visage : peau + modelé (lumière en haut-gauche), oreilles, cou
+  function drawFace(g, cx, cy, rw, rh, skin, opt) {
+    opt = opt || {};
+    const shadow = U.shade(skin, -0.24), lit = U.shade(skin, 0.14);
+    // cou
+    g.fillStyle = shadow;
+    g.beginPath();
+    g.moveTo(cx - 9, cy + rh * 0.7); g.lineTo(cx - 8, cy + rh + 8);
+    g.lineTo(cx + 8, cy + rh + 8); g.lineTo(cx + 9, cy + rh * 0.7);
+    g.closePath(); g.fill();
+    g.fillStyle = skin;
+    g.fillRect(cx - 8, cy + rh * 0.7, 16, 6);
+    // oreilles
+    for (const s of [-1, 1]) {
+      g.fillStyle = s < 0 ? skin : shadow;
+      g.beginPath(); g.ellipse(cx + s * (rw - 1), cy + 2, 3.6, 5.2, 0, 0, U.TAU); g.fill();
+      g.strokeStyle = INK; g.lineWidth = 1.4; g.stroke();
+      g.strokeStyle = U.shade(skin, -0.3); g.lineWidth = 1;
+      g.beginPath(); g.arc(cx + s * (rw - 1.5), cy + 2, 2, -Math.PI / 2, Math.PI / 2); g.stroke();
+    }
+    // tête
+    headPath(g, cx, cy, rw, rh);
+    g.fillStyle = skin; g.fill();
+    // modelé
+    g.save(); headPath(g, cx, cy, rw, rh); g.clip();
+    const rg = g.createRadialGradient(cx - rw * 0.4, cy - rh * 0.5, 4, cx, cy + rh * 0.2, rh * 1.5);
+    rg.addColorStop(0, lit); rg.addColorStop(0.5, skin); rg.addColorStop(1, shadow);
+    g.fillStyle = rg; g.fillRect(cx - rw - 2, cy - rh - 2, rw * 2 + 4, rh * 2.3 + 4);
+    // ombre de la joue droite + mâchoire
+    g.fillStyle = "rgba(40,20,20,0.14)";
+    g.beginPath(); g.ellipse(cx + rw * 0.55, cy + rh * 0.25, rw * 0.5, rh * 0.55, 0, 0, U.TAU); g.fill();
+    // pommettes (léger rose)
+    if (opt.blush) {
+      g.fillStyle = "rgba(220,110,90,0.22)";
+      g.beginPath(); g.ellipse(cx - rw * 0.55, cy + rh * 0.28, 4, 3, 0, 0, U.TAU); g.fill();
+      g.beginPath(); g.ellipse(cx + rw * 0.55, cy + rh * 0.28, 4, 3, 0, 0, U.TAU); g.fill();
+    }
+    g.restore();
+    // contour
+    headPath(g, cx, cy, rw, rh);
+    g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+  }
+
+  // œil détaillé : blanc amande, iris, pupille, reflet, paupière
+  function drawEye(g, ex, ey, w, h, iris, squint) {
+    g.save();
+    // orbite (blanc)
+    g.fillStyle = "#f6f1e6";
+    g.beginPath(); g.ellipse(ex, ey, w, squint ? h * 0.6 : h, 0, 0, U.TAU); g.fill();
+    g.beginPath(); g.ellipse(ex, ey, w, squint ? h * 0.6 : h, 0, 0, U.TAU); g.clip();
+    // iris
+    g.fillStyle = iris || "#5a3a24";
+    g.beginPath(); g.arc(ex + 0.4, ey + 0.6, h * 0.92, 0, U.TAU); g.fill();
+    g.fillStyle = U.shade(iris || "#5a3a24", -0.3);
+    g.beginPath(); g.arc(ex + 0.4, ey + 0.6, h * 0.92, Math.PI * 0.1, Math.PI * 0.9); g.fill();
+    // pupille
+    g.fillStyle = "#120e0d";
+    g.beginPath(); g.arc(ex + 0.4, ey + 0.6, h * 0.44, 0, U.TAU); g.fill();
+    // reflet
+    g.fillStyle = "rgba(255,255,255,0.92)";
+    g.beginPath(); g.arc(ex - 0.8, ey - 0.7, h * 0.24, 0, U.TAU); g.fill();
+    g.restore();
+    // paupière supérieure (trait épais)
+    g.strokeStyle = INK; g.lineWidth = 1.7;
+    g.beginPath(); g.ellipse(ex, ey, w + 0.4, (squint ? h * 0.6 : h) + 0.4, 0, Math.PI * 1.02, Math.PI * 1.98); g.stroke();
+    // cerne inférieur léger
+    g.strokeStyle = "rgba(90,50,40,0.35)"; g.lineWidth = 1;
+    g.beginPath(); g.ellipse(ex, ey, w, (squint ? h * 0.6 : h), 0, Math.PI * 0.15, Math.PI * 0.85); g.stroke();
+  }
+
+  function drawBrow(g, cx, browY, spread, thick, angle, color) {
+    g.fillStyle = color || "#2a1c12";
+    for (const s of [-1, 1]) {
+      g.save();
+      g.translate(cx + s * spread, browY);
+      g.rotate(s * angle);
+      g.beginPath();
+      g.moveTo(-6, 1.5);
+      g.quadraticCurveTo(0, -thick, 7, -0.5);
+      g.quadraticCurveTo(1, thick * 0.5, -6, 3);
+      g.closePath(); g.fill();
+      g.restore();
+    }
+  }
+
+  function drawNose(g, cx, noseY, skin) {
+    g.strokeStyle = "rgba(70,40,30,0.4)"; g.lineWidth = 1.4;
+    g.beginPath();
+    g.moveTo(cx - 1.5, noseY - 5);
+    g.quadraticCurveTo(cx - 2.5, noseY + 2, cx - 0.5, noseY + 3);
+    g.stroke();
+    // narine / base
+    g.fillStyle = U.shade(skin, -0.2);
+    g.beginPath(); g.ellipse(cx + 1, noseY + 3, 2.4, 1.6, 0, 0, U.TAU); g.fill();
+    g.fillStyle = "rgba(255,240,220,0.4)";
+    g.beginPath(); g.ellipse(cx - 2, noseY - 1, 1.2, 3, -0.2, 0, U.TAU); g.fill();
+  }
+
+  // bouches expressives
+  function drawMouth(g, cx, my, type) {
+    g.strokeStyle = "#7a3b30"; g.lineWidth = 2; g.lineCap = "round";
+    g.fillStyle = "#8a2f28";
+    switch (type) {
+      case "smirk":
+        g.beginPath(); g.moveTo(cx - 7, my); g.quadraticCurveTo(cx + 2, my + 3, cx + 8, my - 2); g.stroke();
+        break;
+      case "smile":
+        g.beginPath(); g.moveTo(cx - 8, my - 1);
+        g.quadraticCurveTo(cx, my + 6, cx + 8, my - 1);
+        g.quadraticCurveTo(cx, my + 2, cx - 8, my - 1); g.fill();
+        g.strokeStyle = "#5a2a22"; g.beginPath();
+        g.moveTo(cx - 8, my - 1); g.quadraticCurveTo(cx, my + 6, cx + 8, my - 1); g.stroke();
+        break;
+      case "grin":
+        g.beginPath(); g.moveTo(cx - 9, my - 1);
+        g.quadraticCurveTo(cx, my + 7, cx + 9, my - 1); g.lineTo(cx + 9, my - 1);
+        g.quadraticCurveTo(cx, my + 1, cx - 9, my - 1); g.closePath();
+        g.fillStyle = "#3a1512"; g.fill();
+        g.fillStyle = "#f2ece0";
+        g.beginPath(); g.moveTo(cx - 8, my); g.quadraticCurveTo(cx, my + 2.5, cx + 8, my); g.lineTo(cx + 7, my + 2.5);
+        g.quadraticCurveTo(cx, my + 4.5, cx - 7, my + 2.5); g.closePath(); g.fill();
+        g.strokeStyle = "#5a2a22"; g.lineWidth = 1.6;
+        g.beginPath(); g.moveTo(cx - 9, my - 1); g.quadraticCurveTo(cx, my + 7, cx + 9, my - 1); g.stroke();
+        break;
+      case "snarl":
+        g.beginPath(); g.moveTo(cx - 8, my - 2);
+        g.quadraticCurveTo(cx, my - 5, cx + 8, my); g.lineTo(cx + 7, my + 3);
+        g.quadraticCurveTo(cx, my + 1, cx - 7, my + 2); g.closePath();
+        g.fillStyle = "#3a1512"; g.fill();
+        g.fillStyle = "#eee6d8";
+        g.fillRect(cx - 6, my - 3, 12, 2.6);
+        g.strokeStyle = "#5a2a22"; g.lineWidth = 1.6;
+        g.beginPath(); g.moveTo(cx - 8, my - 2); g.quadraticCurveTo(cx, my - 5, cx + 8, my); g.stroke();
+        break;
+      case "frown":
+        g.beginPath(); g.moveTo(cx - 7, my + 2); g.quadraticCurveTo(cx, my - 2, cx + 7, my + 2); g.stroke();
+        break;
+      default: // neutral
+        g.beginPath(); g.moveTo(cx - 7, my); g.quadraticCurveTo(cx, my + 1.5, cx + 7, my); g.stroke();
+    }
+    g.lineCap = "butt";
+  }
+
+  function drawShoulders(g, color, trim) {
+    const grd = g.createLinearGradient(0, 72, 0, 96);
+    grd.addColorStop(0, U.shade(color, 0.1)); grd.addColorStop(1, U.shade(color, -0.2));
+    g.fillStyle = grd;
+    g.beginPath();
+    g.moveTo(6, 96); g.quadraticCurveTo(12, 74, 30, 71);
+    g.lineTo(66, 71); g.quadraticCurveTo(84, 74, 90, 96);
+    g.closePath(); g.fill();
+    g.strokeStyle = INK; g.lineWidth = 2; g.stroke();
+    if (trim) {
+      g.strokeStyle = trim; g.lineWidth = 2.2;
+      g.beginPath(); g.moveTo(34, 74); g.lineTo(48, 88); g.lineTo(62, 74); g.stroke();
+    }
+  }
+
+  function portraitBg(g, id) {
+    const themes = {
+      jin: ["#0d4a38", "#072920"], wu: ["#4a3810", "#2a1f08"],
+      shark: ["#0d3a44", "#07222a"], cop: ["#1a2c52", "#0d1830"],
+      long: ["#3a2a1a", "#22160c"], lotus: ["#2e1a3a", "#170d20"]
+    };
+    const [c1, c2] = themes[id] || themes.lotus;
+    const rg = g.createRadialGradient(48, 40, 6, 48, 60, 80);
+    rg.addColorStop(0, c1); rg.addColorStop(1, c2);
+    g.fillStyle = rg; g.fillRect(0, 0, 96, 96);
+    // rayons « soleil levant »
+    g.save(); g.beginPath(); g.rect(0, 0, 96, 96); g.clip();
+    g.strokeStyle = "rgba(255,220,140,0.07)"; g.lineWidth = 7;
+    for (let i = 0; i < 9; i++) {
+      g.beginPath(); g.moveTo(48, 104);
+      const a = Math.PI + (i / 8) * Math.PI;
+      g.lineTo(48 + Math.cos(a) * 150, 104 + Math.sin(a) * 150); g.stroke();
+    }
+    g.restore();
+    // vignette
+    const vg = g.createRadialGradient(48, 48, 30, 48, 48, 62);
+    vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.4)");
+    g.fillStyle = vg; g.fillRect(0, 0, 96, 96);
+  }
+
   function portrait(id) {
     let c = portraitCache.get(id);
     if (c) return c;
     c = document.createElement("canvas");
     c.width = 96 * PSS; c.height = 96 * PSS;
-    const x = c.getContext("2d");
-    x.scale(PSS, PSS);
+    const g = c.getContext("2d");
+    g.scale(PSS, PSS);
+    g.lineJoin = "round";
 
-    // fond : motif « soleil levant »
-    const bgs = { jin: "#0f3d30", wu: "#3d2f0f", shark: "#0f2f3d", cop: "#1a2440", lotus: "#241a30" };
-    x.fillStyle = bgs[id] || "#241a30";
-    x.fillRect(0, 0, 96, 96);
-    x.strokeStyle = "rgba(255,200,87,0.15)";
-    x.lineWidth = 5;
-    for (let i = 0; i < 7; i++) {
-      x.beginPath();
-      x.moveTo(48, 96);
-      const a = Math.PI + (i / 6) * Math.PI;
-      x.lineTo(48 + Math.cos(a) * 130, 96 + Math.sin(a) * 130);
-      x.stroke();
-    }
+    portraitBg(g, id);
 
-    x.strokeStyle = INK;
-    x.lineWidth = 2.4;
-
-    function head(skin) {
-      x.fillStyle = skin;
-      x.beginPath(); x.ellipse(48, 46, 21, 24, 0, 0, U.TAU); x.fill(); x.stroke();
-    }
-    function eyes(dx) {
-      x.fillStyle = INK;
-      x.beginPath(); x.ellipse(40, 44 + (dx || 0), 2.6, 3.4, 0, 0, U.TAU); x.fill();
-      x.beginPath(); x.ellipse(57, 44 + (dx || 0), 2.6, 3.4, 0, 0, U.TAU); x.fill();
-    }
-    function mouth(w, sad) {
-      x.strokeStyle = INK; x.lineWidth = 2;
-      x.beginPath();
-      if (sad) x.arc(48, 62, w, Math.PI * 1.15, Math.PI * 1.85);
-      else x.arc(48, 56, w, Math.PI * 0.15, Math.PI * 0.85);
-      x.stroke();
-      x.lineWidth = 2.4;
-    }
-    function shoulders(color) {
-      x.fillStyle = color;
-      x.beginPath();
-      x.moveTo(12, 96); x.quadraticCurveTo(48, 62, 84, 96);
-      x.closePath(); x.fill(); x.stroke();
-    }
+    const CX = 48;
 
     if (id === "jin") {
-      shoulders("#2ee6a8");
-      head("#e8b48c");
-      // undercut
-      x.fillStyle = "#14181f";
-      x.beginPath();
-      x.moveTo(27, 44); x.quadraticCurveTo(30, 18, 52, 20);
-      x.quadraticCurveTo(70, 21, 69, 42);
-      x.quadraticCurveTo(60, 28, 44, 30);
-      x.quadraticCurveTo(31, 32, 27, 44);
-      x.closePath(); x.fill(); x.stroke();
-      eyes(); mouth(6);
-      // écouteur
-      x.fillStyle = "#ffc857";
-      x.beginPath(); x.arc(68, 48, 3, 0, U.TAU); x.fill();
+      drawShoulders(g, "#1f9c72", "#ffc857");
+      // col de veste jade
+      g.fillStyle = "#0f7a55";
+      g.beginPath(); g.moveTo(38, 96); g.lineTo(44, 76); g.lineTo(52, 76); g.lineTo(58, 96); g.closePath(); g.fill();
+      drawFace(g, CX, 46, 21, 25, "#e8b48c");
+      drawBrow(g, CX, 35, 10, 4, 0.05, "#14100f");
+      drawEye(g, CX - 9, 44, 4.4, 4, "#3a2718");
+      drawEye(g, CX + 9, 44, 4.4, 4, "#3a2718");
+      drawNose(g, CX, 50, "#e8b48c");
+      drawMouth(g, CX, 60, "smirk");
+      // cheveux : undercut avec mèches en pointe
+      g.fillStyle = "#16140f";
+      g.beginPath();
+      g.moveTo(26, 42); g.quadraticCurveTo(24, 18, 48, 16);
+      g.quadraticCurveTo(72, 18, 70, 42);
+      g.quadraticCurveTo(64, 30, 56, 30);
+      g.quadraticCurveTo(58, 24, 50, 26);
+      g.quadraticCurveTo(46, 22, 42, 27);
+      g.quadraticCurveTo(38, 24, 36, 30);
+      g.quadraticCurveTo(30, 30, 26, 42);
+      g.closePath(); g.fill();
+      g.strokeStyle = INK; g.lineWidth = 1.6; g.stroke();
+      // reflet cheveux
+      g.strokeStyle = "rgba(120,140,160,0.35)"; g.lineWidth = 1.4;
+      g.beginPath(); g.moveTo(34, 24); g.quadraticCurveTo(44, 19, 54, 22); g.stroke();
+      // oreillette dorée
+      g.fillStyle = "#ffc857"; g.strokeStyle = INK; g.lineWidth = 1;
+      g.beginPath(); g.arc(69, 48, 3, 0, U.TAU); g.fill(); g.stroke();
+      g.strokeStyle = "#ffc857"; g.lineWidth = 1.4;
+      g.beginPath(); g.moveTo(69, 51); g.quadraticCurveTo(66, 58, 60, 60); g.stroke();
+
     } else if (id === "wu") {
-      shoulders("#6d6875");
-      head("#d9a878");
-      x.fillStyle = "#b9b9b9";
-      x.beginPath(); // barbiche
-      x.moveTo(41, 66); x.quadraticCurveTo(48, 84, 55, 66);
-      x.closePath(); x.fill(); x.stroke();
-      x.beginPath(); // sourcils épais
-      x.fillRect(34, 37, 11, 3); x.fillRect(51, 37, 11, 3);
-      eyes(2); mouth(5);
-      // calotte
-      x.fillStyle = "#2c2c34";
-      x.beginPath(); x.ellipse(48, 27, 19, 9, 0, Math.PI, 0); x.fill(); x.stroke();
-      x.fillStyle = "#ffc857";
-      x.beginPath(); x.arc(48, 22, 2.5, 0, U.TAU); x.fill();
+      drawShoulders(g, "#5c5568", "#ffc857");
+      // col mandarin
+      g.fillStyle = "#3a3646";
+      g.beginPath(); g.moveTo(34, 96); g.lineTo(40, 74); g.lineTo(56, 74); g.lineTo(62, 96); g.closePath(); g.fill();
+      g.strokeStyle = "#ffc857"; g.lineWidth = 1.6;
+      g.beginPath(); g.moveTo(48, 74); g.lineTo(48, 90); g.stroke();
+      drawFace(g, CX, 45, 20, 24, "#d9a878", { blush: true });
+      // rides du front
+      g.strokeStyle = "rgba(120,80,50,0.3)"; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(38, 30); g.quadraticCurveTo(48, 27, 58, 30); g.stroke();
+      drawBrow(g, CX, 35, 10, 5, -0.1, "#c8c4bc");
+      drawEye(g, CX - 9, 44, 4, 3, "#4a3826", true);
+      drawEye(g, CX + 9, 44, 4, 3, "#4a3826", true);
+      drawNose(g, CX, 50, "#d9a878");
+      drawMouth(g, CX, 59, "smile");
+      // moustache tombante
+      g.fillStyle = "#c8c4bc";
+      g.beginPath();
+      g.moveTo(40, 57); g.quadraticCurveTo(48, 61, 56, 57);
+      g.quadraticCurveTo(58, 64, 53, 68); g.quadraticCurveTo(48, 60, 43, 68);
+      g.quadraticCurveTo(38, 64, 40, 57); g.closePath(); g.fill(); g.stroke();
+      // barbiche
+      g.fillStyle = "#c8c4bc";
+      g.beginPath(); g.moveTo(43, 66); g.quadraticCurveTo(48, 82, 53, 66);
+      g.quadraticCurveTo(48, 70, 43, 66); g.closePath(); g.fill(); g.stroke();
+      // calotte / crâne dégarni + cheveux gris sur les côtés
+      g.fillStyle = "#d9a878";
+      g.beginPath(); g.ellipse(CX, 30, 20, 15, 0, Math.PI, 0); g.fill();
+      headPath(g, CX, 45, 20, 24); g.save(); g.clip();
+      g.fillStyle = "#c8c4bc";
+      g.beginPath(); g.ellipse(28, 40, 6, 12, 0.3, 0, U.TAU); g.fill();
+      g.beginPath(); g.ellipse(68, 40, 6, 12, -0.3, 0, U.TAU); g.fill();
+      g.restore();
+      // calotte de soie
+      g.fillStyle = "#2c2c38";
+      g.beginPath(); g.ellipse(CX, 26, 17, 8, 0, Math.PI, 0); g.fill();
+      g.strokeStyle = INK; g.lineWidth = 1.6; g.stroke();
+      g.fillStyle = "#ffc857";
+      g.beginPath(); g.arc(CX, 20, 2.6, 0, U.TAU); g.fill(); g.stroke();
+
     } else if (id === "shark") {
-      shoulders("#19b3c4");
-      head("#c68e5f");
+      drawShoulders(g, "#158fa0");
+      // fermeture éclair
+      g.strokeStyle = "#0a5560"; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(48, 74); g.lineTo(48, 96); g.stroke();
+      drawFace(g, CX, 46, 21, 24, "#c68e5f");
+      drawBrow(g, CX, 36, 10, 5, -0.28, "#181410");
+      drawEye(g, CX - 9, 44, 4, 3.4, "#2a4a52");
+      drawEye(g, CX + 9, 44, 4, 3.4, "#2a4a52");
+      drawNose(g, CX, 50, "#c68e5f");
+      drawMouth(g, CX, 60, "snarl");
+      // barbe naissante
+      g.save(); headPath(g, CX, 46, 21, 24); g.clip();
+      g.fillStyle = "rgba(20,16,14,0.25)";
+      g.fillRect(30, 54, 36, 20);
+      g.restore();
+      // cicatrice sur l'œil
+      g.strokeStyle = "#9a5a3a"; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(58, 36); g.lineTo(62, 52); g.stroke();
+      g.strokeStyle = "rgba(255,220,200,0.4)"; g.lineWidth = 0.8;
+      g.beginPath(); g.moveTo(59, 37); g.lineTo(63, 51); g.stroke();
       // bandana requin
-      x.fillStyle = "#0d7885";
-      x.beginPath();
-      x.moveTo(26, 40); x.quadraticCurveTo(48, 14, 70, 40);
-      x.lineTo(70, 33); x.quadraticCurveTo(48, 10, 26, 33);
-      x.closePath(); x.fill(); x.stroke();
-      x.fillStyle = "#e8f6f8";
-      // dents dessinées sur le bandana
-      for (let i = 0; i < 4; i++) {
-        x.beginPath();
-        x.moveTo(34 + i * 8, 34); x.lineTo(38 + i * 8, 26); x.lineTo(42 + i * 8, 34);
-        x.closePath(); x.fill();
+      g.fillStyle = "#0d6b78";
+      g.beginPath();
+      g.moveTo(25, 40); g.quadraticCurveTo(48, 20, 71, 40);
+      g.lineTo(71, 30); g.quadraticCurveTo(48, 12, 25, 30);
+      g.closePath(); g.fill();
+      g.strokeStyle = INK; g.lineWidth = 1.8; g.stroke();
+      g.fillStyle = U.shade("#0d6b78", 0.12);
+      g.fillRect(25, 30, 46, 3);
+      // dents de requin peintes
+      g.fillStyle = "#eaf6f8";
+      for (let i = 0; i < 5; i++) {
+        g.beginPath();
+        g.moveTo(31 + i * 8, 38); g.lineTo(35 + i * 8, 30); g.lineTo(39 + i * 8, 38);
+        g.closePath(); g.fill();
       }
-      eyes(); mouth(6, true);
-      // cicatrice
-      x.strokeStyle = "#8a4a2a"; x.lineWidth = 2;
-      x.beginPath(); x.moveTo(60, 50); x.lineTo(66, 60); x.stroke();
+      // nœud du bandana
+      g.fillStyle = "#0d6b78"; g.strokeStyle = INK; g.lineWidth = 1.4;
+      g.beginPath(); g.ellipse(70, 34, 4, 3, 0.4, 0, U.TAU); g.fill(); g.stroke();
+
     } else if (id === "cop") {
-      shoulders("#2b4c7e");
-      head("#f0c8a0");
-      eyes(); mouth(4, true);
-      // casquette
-      x.fillStyle = "#22304a";
-      x.beginPath(); x.ellipse(48, 28, 22, 11, 0, Math.PI, 0); x.fill(); x.stroke();
-      x.fillRect(26, 26, 44, 6);
-      x.strokeRect(26, 26, 44, 6);
-      x.fillStyle = "#ffc857";
-      x.beginPath(); x.arc(48, 24, 3.5, 0, U.TAU); x.fill(); x.stroke();
-      // lunettes
-      x.fillStyle = "#14181f";
-      x.fillRect(33, 40, 13, 7); x.fillRect(51, 40, 13, 7);
-      x.strokeRect(33, 40, 13, 7); x.strokeRect(51, 40, 13, 7);
-    } else { // lotus / défaut
-      shoulders("#23202b");
-      head("#e8b48c");
-      x.fillStyle = "#101010";
-      x.beginPath();
-      x.moveTo(27, 46); x.quadraticCurveTo(28, 16, 48, 18);
-      x.quadraticCurveTo(68, 16, 69, 46);
-      x.quadraticCurveTo(62, 26, 48, 27);
-      x.quadraticCurveTo(34, 26, 27, 46);
-      x.closePath(); x.fill(); x.stroke();
-      eyes(); mouth(5);
-      x.strokeStyle = "#ffc857"; x.lineWidth = 2;
-      x.beginPath(); x.moveTo(30, 84); x.quadraticCurveTo(48, 70, 66, 84); x.stroke();
+      drawShoulders(g, "#2b4c7e", "#ffc857");
+      // insigne
+      g.fillStyle = "#ffc857";
+      g.beginPath(); g.arc(34, 84, 4, 0, U.TAU); g.fill(); g.strokeStyle = INK; g.lineWidth = 1; g.stroke();
+      drawFace(g, CX, 47, 20, 23, "#e6c39a");
+      drawBrow(g, CX, 38, 10, 4, -0.05, "#3a2a1a");
+      drawNose(g, CX, 51, "#e6c39a");
+      drawMouth(g, CX, 60, "neutral");
+      // lunettes aviateur
+      g.fillStyle = "#14181f"; g.strokeStyle = "#2a2f38"; g.lineWidth = 1.4;
+      for (const s of [-1, 1]) {
+        g.beginPath(); g.ellipse(CX + s * 9, 45, 6, 5, 0, 0, U.TAU); g.fill(); g.stroke();
+        g.fillStyle = "rgba(120,180,220,0.35)";
+        g.beginPath(); g.ellipse(CX + s * 9 - 1.5, 43, 2, 2.5, 0, 0, U.TAU); g.fill();
+        g.fillStyle = "#14181f";
+      }
+      g.strokeStyle = "#2a2f38"; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(CX - 3, 44); g.lineTo(CX + 3, 44); g.stroke();
+      // casquette de police
+      g.fillStyle = "#22304a";
+      g.beginPath(); g.ellipse(CX, 30, 22, 12, 0, Math.PI, 0); g.fill();
+      g.fillStyle = "#1a2740";
+      g.beginPath(); g.ellipse(CX, 32, 24, 6, 0, 0, Math.PI); g.fill(); // visière
+      g.strokeStyle = INK; g.lineWidth = 1.8;
+      g.beginPath(); g.ellipse(CX, 30, 22, 12, 0, Math.PI, 0); g.stroke();
+      g.beginPath(); g.ellipse(CX, 32, 24, 6, 0, 0, Math.PI); g.stroke();
+      // bandeau + écusson
+      g.fillStyle = "#14203a"; g.fillRect(CX - 22, 30, 44, 4);
+      g.fillStyle = "#ffc857"; g.strokeStyle = INK; g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(CX, 20); g.lineTo(CX + 4, 24); g.lineTo(CX + 3, 29);
+      g.lineTo(CX - 3, 29); g.lineTo(CX - 4, 24); g.closePath(); g.fill(); g.stroke();
+
+    } else if (id === "long") {
+      drawShoulders(g, "#3d4a5c", "#8a3324");
+      // bavette de salopette
+      g.fillStyle = "#4f6a8a";
+      g.beginPath(); g.moveTo(38, 96); g.lineTo(40, 76); g.lineTo(56, 76); g.lineTo(58, 96); g.closePath(); g.fill();
+      g.strokeStyle = INK; g.lineWidth = 1.4; g.stroke();
+      g.fillStyle = "#c8a24a";
+      g.fillRect(42, 78, 3, 3); g.fillRect(51, 78, 3, 3); // boutons
+      drawFace(g, CX, 47, 21, 24, "#c68e5f");
+      drawBrow(g, CX, 37, 10, 4.5, 0.02, "#241810");
+      drawEye(g, CX - 9, 45, 4.2, 3.6, "#2e2014");
+      drawEye(g, CX + 9, 45, 4.2, 3.6, "#2e2014");
+      drawNose(g, CX, 51, "#c68e5f");
+      drawMouth(g, CX, 61, "grin");
+      // barbe de trois jours
+      g.save(); headPath(g, CX, 47, 21, 24); g.clip();
+      g.fillStyle = "rgba(30,20,12,0.28)";
+      g.fillRect(28, 56, 40, 20);
+      // tache de cambouis
+      g.fillStyle = "rgba(20,16,20,0.4)";
+      g.beginPath(); g.ellipse(62, 56, 4, 2.5, 0.5, 0, U.TAU); g.fill();
+      g.restore();
+      // cheveux courts
+      g.fillStyle = "#241810";
+      g.beginPath();
+      g.moveTo(27, 40); g.quadraticCurveTo(26, 22, 48, 20);
+      g.quadraticCurveTo(70, 22, 69, 40);
+      g.quadraticCurveTo(62, 32, 48, 32);
+      g.quadraticCurveTo(34, 32, 27, 40);
+      g.closePath(); g.fill();
+      g.strokeStyle = INK; g.lineWidth = 1.6; g.stroke();
+      // casquette relevée (rouge atelier)
+      g.fillStyle = "#8a3324";
+      g.beginPath(); g.ellipse(CX, 26, 19, 9, 0, Math.PI, 0); g.fill();
+      g.fillStyle = "#a53c2a";
+      g.beginPath(); g.ellipse(CX, 22, 14, 7, 0, Math.PI, 0); g.fill();
+      g.strokeStyle = INK; g.lineWidth = 1.6;
+      g.beginPath(); g.ellipse(CX, 26, 19, 9, 0, Math.PI, 0); g.stroke();
+
+    } else { // lotus (exécuteur) / défaut
+      drawShoulders(g, "#23202b", "#ffc857");
+      // cravate dorée
+      g.fillStyle = "#141119";
+      g.beginPath(); g.moveTo(40, 76); g.lineTo(48, 84); g.lineTo(56, 76); g.closePath(); g.fill();
+      g.fillStyle = "#ffc857";
+      g.beginPath(); g.moveTo(46, 80); g.lineTo(50, 80); g.lineTo(52, 96); g.lineTo(44, 96); g.closePath(); g.fill();
+      drawFace(g, CX, 46, 20, 24, "#e8b48c");
+      drawBrow(g, CX, 36, 10, 4, -0.15, "#0e0c0a");
+      drawEye(g, CX - 9, 44, 4, 3.4, "#241a12");
+      drawEye(g, CX + 9, 44, 4, 3.4, "#241a12");
+      drawNose(g, CX, 50, "#e8b48c");
+      drawMouth(g, CX, 60, "neutral");
+      // cheveux gominés en arrière
+      g.fillStyle = "#0e0c0a";
+      g.beginPath();
+      g.moveTo(27, 44); g.quadraticCurveTo(25, 18, 48, 16);
+      g.quadraticCurveTo(71, 18, 69, 44);
+      g.quadraticCurveTo(64, 30, 48, 30);
+      g.quadraticCurveTo(32, 30, 27, 44);
+      g.closePath(); g.fill();
+      g.strokeStyle = INK; g.lineWidth = 1.6; g.stroke();
+      // raies gominées
+      g.strokeStyle = "rgba(90,90,110,0.4)"; g.lineWidth = 1;
+      for (let i = -2; i <= 2; i++) {
+        g.beginPath(); g.moveTo(48 + i * 7, 18); g.quadraticCurveTo(48 + i * 9, 26, 48 + i * 6, 30); g.stroke();
+      }
     }
 
     portraitCache.set(id, c);

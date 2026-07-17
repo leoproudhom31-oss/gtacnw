@@ -125,54 +125,63 @@
     drawMoneyWanted(ctx, w, W, H);
     drawWeapon(ctx, w, W, H);
 
-    // objectif
+    // objectif (bandeau bas, avec pastille losange)
     if (HUD.objective) {
       ctx.font = "bold 15px 'Rubik','Trebuchet MS',sans-serif";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      const tw = ctx.measureText(HUD.objective).width + 34;
-      const y = H - 44;
-      ctx.fillStyle = "rgba(18,14,28,0.78)";
-      roundedRect(ctx, W / 2 - tw / 2, y - 15, tw, 30, 6); ctx.fill();
-      ctx.strokeStyle = "rgba(46,230,168,0.5)"; ctx.lineWidth = 1.5;
-      roundedRect(ctx, W / 2 - tw / 2, y - 15, tw, 30, 6); ctx.stroke();
+      ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      const tw = ctx.measureText(HUD.objective).width;
+      const pad = 20, diam = 22;
+      const boxW = tw + pad * 2 + diam;
+      const y = H - 44, bxo = W / 2 - boxW / 2;
+      hudPanel(ctx, bxo, y - 16, boxW, 32, 8, "rgba(46,230,168,0.55)");
+      // losange d'objectif
+      const dx = bxo + pad, dy = y;
+      ctx.save(); ctx.translate(dx, dy); ctx.rotate(Math.PI / 4);
       ctx.fillStyle = "#2ee6a8";
-      ctx.fillText(HUD.objective, W / 2, y + 1);
+      ctx.shadowColor = "#2ee6a8"; ctx.shadowBlur = 6;
+      ctx.fillRect(-5, -5, 10, 10);
+      ctx.restore();
+      ctx.fillStyle = "#eafff6";
+      ctx.textAlign = "left";
+      ctx.fillText(HUD.objective, dx + 16, y + 1);
     }
 
     // ligne auxiliaire de mission (état du van, distance de filature…)
     if (HUD.auxText) {
+      const alert = HUD.auxText.startsWith("⚠");
       ctx.font = "bold 13px 'Rubik','Trebuchet MS',sans-serif";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      const tw2 = ctx.measureText(HUD.auxText).width + 24;
-      const y2 = H - 74;
-      ctx.fillStyle = "rgba(18,14,28,0.72)";
-      roundedRect(ctx, W / 2 - tw2 / 2, y2 - 12, tw2, 24, 5); ctx.fill();
-      ctx.fillStyle = HUD.auxText.startsWith("⚠") ? "#ff5340" : "#ffc857";
+      const tw2 = ctx.measureText(HUD.auxText).width + 30;
+      const y2 = H - 78;
+      hudPanel(ctx, W / 2 - tw2 / 2, y2 - 13, tw2, 26, 6, alert ? "rgba(255,83,64,0.6)" : "rgba(255,200,87,0.5)");
+      ctx.fillStyle = alert ? "#ff6a58" : "#ffc857";
+      ctx.textAlign = "center";
+      if (alert && Math.sin(w.time * 10) > 0) ctx.fillStyle = "#ff9a8a";
       ctx.fillText(HUD.auxText, W / 2, y2 + 1);
     }
 
-    // timer
+    // timer (chrono en haut au centre)
     if (HUD.timer >= 0) {
-      ctx.font = "bold 34px 'Rubik','Trebuchet MS',monospace";
-      ctx.textAlign = "center";
-      const txt = U.fmtTime(HUD.timer);
-      ctx.fillStyle = "rgba(18,14,28,0.6)";
-      roundedRect(ctx, W / 2 - 58, 14, 116, 44, 8); ctx.fill();
-      ctx.fillStyle = HUD.timer < 10 ? "#ff5340" : "#f5ead6";
-      ctx.fillText(txt, W / 2, 44);
+      const urgent = HUD.timer < 10;
+      hudPanel(ctx, W / 2 - 58, 12, 116, 46, 9, urgent ? "rgba(255,83,64,0.7)" : "rgba(255,200,87,0.5)");
+      ctx.font = "9px 'Rubik',sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(245,234,214,0.55)";
+      ctx.fillText("TEMPS RESTANT", W / 2, 22);
+      ctx.font = "bold 26px 'Rubik','Trebuchet MS',monospace";
+      ctx.fillStyle = urgent ? (Math.sin(w.time * 8) > 0 ? "#ff5340" : "#ff9a8a") : "#f5ead6";
+      ctx.fillText(U.fmtTime(HUD.timer), W / 2, 42);
     }
 
     // toast
     if (HUD.toastT > 0 && HUD.toastText) {
       const a = Math.min(1, HUD.toastT / 0.4);
       ctx.globalAlpha = a;
-      ctx.font = "14px 'Rubik','Trebuchet MS',sans-serif";
-      ctx.textAlign = "center";
-      const tw = ctx.measureText(HUD.toastText).width + 28;
-      ctx.fillStyle = "rgba(18,14,28,0.85)";
-      roundedRect(ctx, W / 2 - tw / 2, H - 86, tw, 26, 5); ctx.fill();
-      ctx.fillStyle = "#f5ead6";
-      ctx.fillText(HUD.toastText, W / 2, H - 69);
+      ctx.font = "13px 'Rubik','Trebuchet MS',sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const tw = ctx.measureText(HUD.toastText).width + 32;
+      hudPanel(ctx, W / 2 - tw / 2, H - 90, tw, 27, 6, "rgba(255,200,87,0.4)");
+      ctx.fillStyle = "#f7eeda";
+      ctx.fillText(HUD.toastText, W / 2, H - 76);
       ctx.globalAlpha = 1;
     }
 
@@ -184,15 +193,13 @@
       ctx.textAlign = "left";
       const lines = wrapText(ctx, HUD.tutoText, 250);
       const bw = 276, bh = lines.length * 18 + 34;
-      const bx = W - bw - 14, by = 120;
-      ctx.fillStyle = "rgba(18,14,28,0.85)";
-      roundedRect(ctx, bx, by, bw, bh, 8); ctx.fill();
-      ctx.strokeStyle = "#ffc857"; ctx.lineWidth = 1.5;
-      roundedRect(ctx, bx, by, bw, bh, 8); ctx.stroke();
+      const bx = W - bw - 14, by = 146; // sous le panneau d'arme (92→134)
+      hudPanel(ctx, bx, by, bw, bh, 8, "rgba(255,200,87,0.6)");
       ctx.fillStyle = "#ffc857";
       ctx.font = "bold 12px 'Rubik','Trebuchet MS',sans-serif";
+      ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
       ctx.fillText("◆ LEÇON DE JADE HARBOR", bx + 13, by + 18);
-      ctx.fillStyle = "#f5ead6";
+      ctx.fillStyle = "#f2e9d6";
       ctx.font = "13px 'Rubik','Trebuchet MS',sans-serif";
       lines.forEach((l, i) => ctx.fillText(l, bx + 13, by + 40 + i * 18));
       ctx.globalAlpha = 1;
@@ -249,10 +256,24 @@
 
     ctx.save();
     // cadre
-    ctx.fillStyle = "rgba(18,14,28,0.85)";
-    roundedRect(ctx, mx - 4, my - 4, size + 8, size + 8, 12); ctx.fill();
-    ctx.strokeStyle = "#2ee6a8"; ctx.lineWidth = 2;
-    roundedRect(ctx, mx - 4, my - 4, size + 8, size + 8, 12); ctx.stroke();
+    const fg = ctx.createLinearGradient(0, my - 5, 0, my + size + 5);
+    fg.addColorStop(0, "rgba(26,20,38,0.92)");
+    fg.addColorStop(1, "rgba(14,11,22,0.92)");
+    ctx.fillStyle = fg;
+    roundedRect(ctx, mx - 5, my - 5, size + 10, size + 10, 13); ctx.fill();
+    ctx.strokeStyle = "rgba(46,230,168,0.85)"; ctx.lineWidth = 2;
+    roundedRect(ctx, mx - 5, my - 5, size + 10, size + 10, 13); ctx.stroke();
+    // accents d'angle dorés
+    ctx.strokeStyle = "#ffc857"; ctx.lineWidth = 2.4; ctx.lineCap = "round";
+    const cc = 14, o = -5;
+    const corners = [[mx + o, my + o, 1, 1], [mx + size - o, my + o, -1, 1],
+                     [mx + o, my + size - o, 1, -1], [mx + size - o, my + size - o, -1, -1]];
+    for (const [cxx, cyy, dx, dy] of corners) {
+      ctx.beginPath();
+      ctx.moveTo(cxx + dx * cc, cyy); ctx.lineTo(cxx, cyy); ctx.lineTo(cxx, cyy + dy * cc);
+      ctx.stroke();
+    }
+    ctx.lineCap = "butt";
 
     roundedRect(ctx, mx, my, size, size, 9);
     ctx.clip();
@@ -374,84 +395,264 @@
     return { x: cx + dx * t, y: cy + dy * t };
   }
 
-  /* ---------- barres & compteurs ---------- */
+  /* ---------- helpers de style ---------- */
+
+  // panneau HUD cohérent : fond encre + liseré supérieur + accent
+  function hudPanel(ctx, x, y, w, h, r, accent) {
+    const g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, "rgba(26,20,38,0.90)");
+    g.addColorStop(1, "rgba(14,11,22,0.90)");
+    ctx.fillStyle = g;
+    roundedRect(ctx, x, y, w, h, r); ctx.fill();
+    // liseré clair en haut
+    ctx.strokeStyle = "rgba(255,255,255,0.07)"; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y + 0.5); ctx.lineTo(x + w - r, y + 0.5); ctx.stroke();
+    // bordure d'accent
+    ctx.strokeStyle = accent || "rgba(46,230,168,0.55)"; ctx.lineWidth = 1.5;
+    roundedRect(ctx, x, y, w, h, r); ctx.stroke();
+  }
+
+  // barre segmentée (vie, armure, munitions…)
+  function segBar(ctx, x, y, w, h, frac, colA, colB, glow) {
+    frac = U.clamp(frac, 0, 1);
+    // fond creusé
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    roundedRect(ctx, x, y, w, h, h / 2); ctx.fill();
+    // remplissage dégradé
+    if (frac > 0.001) {
+      ctx.save();
+      roundedRect(ctx, x, y, w, h, h / 2); ctx.clip();
+      const fw = w * frac;
+      const g = ctx.createLinearGradient(x, y, x, y + h);
+      g.addColorStop(0, colA);
+      g.addColorStop(1, colB);
+      ctx.fillStyle = g;
+      ctx.fillRect(x, y, fw, h);
+      // reflet supérieur
+      ctx.fillStyle = "rgba(255,255,255,0.22)";
+      ctx.fillRect(x, y + 1, fw, h * 0.35);
+      // séparateurs de segments
+      ctx.strokeStyle = "rgba(0,0,0,0.28)"; ctx.lineWidth = 1;
+      for (let s = 1; s < 10; s++) {
+        const sx = x + w * (s / 10);
+        ctx.beginPath(); ctx.moveTo(sx, y); ctx.lineTo(sx, y + h); ctx.stroke();
+      }
+      ctx.restore();
+      if (glow) {
+        ctx.save();
+        ctx.shadowColor = colA; ctx.shadowBlur = 6;
+        ctx.strokeStyle = "rgba(255,255,255,0.0)";
+        roundedRect(ctx, x, y, w * frac, h, h / 2); ctx.stroke();
+        ctx.restore();
+      }
+    }
+    // contour
+    ctx.strokeStyle = "rgba(255,255,255,0.10)"; ctx.lineWidth = 1;
+    roundedRect(ctx, x, y, w, h, h / 2); ctx.stroke();
+  }
+
+  function heartIcon(ctx, cx, cy, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + r * 0.75);
+    ctx.bezierCurveTo(cx - r * 1.3, cy - r * 0.35, cx - r * 0.5, cy - r * 1.1, cx, cy - r * 0.3);
+    ctx.bezierCurveTo(cx + r * 0.5, cy - r * 1.1, cx + r * 1.3, cy - r * 0.35, cx, cy + r * 0.75);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function shieldIcon(ctx, cx, cy, r, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r);
+    ctx.lineTo(cx + r * 0.85, cy - r * 0.55);
+    ctx.lineTo(cx + r * 0.85, cy + r * 0.2);
+    ctx.quadraticCurveTo(cx + r * 0.7, cy + r * 0.9, cx, cy + r * 1.15);
+    ctx.quadraticCurveTo(cx - r * 0.7, cy + r * 0.9, cx - r * 0.85, cy + r * 0.2);
+    ctx.lineTo(cx - r * 0.85, cy - r * 0.55);
+    ctx.closePath(); ctx.fill();
+  }
+
+  /* ---------- barres vie/armure (sous la minimap) ---------- */
 
   function drawBars(ctx, w, W, H) {
     const pl = w.player;
-    const x = 16, y = 16 + MM_SIZE + 14, bw = MM_SIZE, bh = 10;
+    const px = 12, py = 16 + MM_SIZE + 12, pw = MM_SIZE + 8;
+    const hasArmor = pl.armor > 0;
+    const ph = hasArmor ? 52 : 32;
+    hudPanel(ctx, px, py, pw, ph, 9, "rgba(46,230,168,0.5)");
+
+    const bx = px + 30, bw = pw - 42, bh = 11;
     // vie
-    ctx.fillStyle = "rgba(18,14,28,0.8)";
-    roundedRect(ctx, x - 2, y - 2, bw + 4, bh + 4, 4); ctx.fill();
-    ctx.fillStyle = "#3d1f24";
-    ctx.fillRect(x, y, bw, bh);
-    ctx.fillStyle = pl.hp > 30 ? "#2ee6a8" : "#ff5340";
-    ctx.fillRect(x, y, bw * U.clamp(pl.hp / pl.maxHp, 0, 1), bh);
+    let hy = py + (hasArmor ? 11 : 11);
+    heartIcon(ctx, px + 16, hy + bh / 2, 7, pl.hp > 30 ? "#ff5a6e" : "#ff3242");
+    const hpFrac = U.clamp(pl.hp / pl.maxHp, 0, 1);
+    const hpA = pl.hp > 30 ? "#3cf0b0" : "#ff6a58", hpB = pl.hp > 30 ? "#1b9c6e" : "#c0342b";
+    segBar(ctx, bx, hy, bw, bh, hpFrac, hpA, hpB, pl.hp <= 30);
+    ctx.font = "bold 9px 'Rubik',sans-serif"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(245,234,214,0.9)";
+    ctx.fillText(Math.ceil(pl.hp), bx + bw - 3, hy + bh / 2 + 0.5);
+
     // armure
-    if (pl.armor > 0) {
-      const y2 = y + bh + 5;
-      ctx.fillStyle = "rgba(18,14,28,0.8)";
-      roundedRect(ctx, x - 2, y2 - 2, bw + 4, bh + 2, 4); ctx.fill();
-      ctx.fillStyle = "#3b8bff";
-      ctx.fillRect(x, y2, bw * U.clamp(pl.armor / 100, 0, 1), bh - 2);
+    if (hasArmor) {
+      const ay = hy + bh + 8;
+      shieldIcon(ctx, px + 16, ay + bh / 2 - 1, 6.5, "#7ab8ff");
+      segBar(ctx, bx, ay, bw, bh, U.clamp(pl.armor / 100, 0, 1), "#7ab8ff", "#2f6fbf", false);
+      ctx.fillStyle = "rgba(245,234,214,0.9)"; ctx.textAlign = "right";
+      ctx.font = "bold 9px 'Rubik',sans-serif";
+      ctx.fillText(Math.ceil(pl.armor), bx + bw - 3, ay + bh / 2 + 0.5);
     }
   }
 
+  /* ---------- argent + étoiles de recherche (haut-droite) ---------- */
+
   function drawMoneyWanted(ctx, w, W, H) {
     const pl = w.player;
-    // argent
-    ctx.font = "bold 22px 'Rubik','Trebuchet MS',monospace";
-    ctx.textAlign = "right";
-    ctx.textBaseline = "top";
-    ctx.fillStyle = "#12101a";
-    ctx.fillText(U.fmtMoney(pl.money), W - 16 + 2, 16 + 2);
-    ctx.fillStyle = "#8ee6b8";
-    ctx.fillText(U.fmtMoney(pl.money), W - 16, 16);
+    const rm = 16;
+
+    // panneau argent
+    ctx.font = "bold 21px 'Rubik','Trebuchet MS',monospace";
+    const moneyTxt = U.fmtMoney(pl.money);
+    const mtw = ctx.measureText(moneyTxt).width;
+    const pw = mtw + 46, pw2 = Math.max(pw, 150);
+    const px = W - rm - pw2, py = 14, ph = 34;
+    hudPanel(ctx, px, py, pw2, ph, 8, "rgba(255,200,87,0.5)");
+    // pièce
+    const coinX = px + 18, coinY = py + ph / 2;
+    const cg = ctx.createRadialGradient(coinX - 2, coinY - 2, 1, coinX, coinY, 9);
+    cg.addColorStop(0, "#ffe89a"); cg.addColorStop(1, "#e0a52f");
+    ctx.fillStyle = cg;
+    ctx.beginPath(); ctx.arc(coinX, coinY, 9, 0, U.TAU); ctx.fill();
+    ctx.strokeStyle = "#a5761a"; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(coinX, coinY, 9, 0, U.TAU); ctx.stroke();
+    ctx.fillStyle = "#a5761a"; ctx.font = "bold 11px 'Rubik',sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("$", coinX, coinY + 0.5);
+    // montant
+    ctx.font = "bold 20px 'Rubik','Trebuchet MS',monospace";
+    ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "#f6ecd6";
+    ctx.fillText(moneyTxt, W - rm - 12, py + ph / 2 + 1);
+    // popup de gain
     if (HUD.moneyPopT > 0) {
       ctx.globalAlpha = Math.min(1, HUD.moneyPopT);
-      ctx.font = "bold 16px 'Rubik','Trebuchet MS',monospace";
-      ctx.fillStyle = "#ffc857";
-      ctx.fillText("+" + HUD.moneyPop + " $", W - 16, 44 - (1.6 - HUD.moneyPopT) * 10);
+      ctx.font = "bold 15px 'Rubik','Trebuchet MS',monospace";
+      ctx.fillStyle = "#5cf0a8";
+      ctx.textAlign = "right";
+      ctx.fillText("+" + HUD.moneyPop + " $", W - rm - 12, py + ph + 12 - (1.6 - HUD.moneyPopT) * 8);
       ctx.globalAlpha = 1;
     }
 
     // étoiles de recherche
     const lvl = w.wanted.level;
     const cooling = w.wanted.evadeT > 0;
+    const starGap = 25, sr = 10;
+    const rowW = 5 * starGap;
+    const sx0 = W - rm - rowW + starGap / 2, sy = py + ph + 20;
     for (let i = 0; i < 5; i++) {
-      const sx = W - 16 - (4 - i) * 26 - 13, sy = 62;
       const filled = i < lvl;
       const blink = cooling && filled ? (Math.sin(w.time * 8) > 0) : true;
-      drawStar(ctx, sx, sy, 10, filled && blink ? "#ffc857" : "rgba(245,234,214,0.16)");
+      const on = filled && blink;
+      drawStar(ctx, sx0 + i * starGap, sy, sr, on);
     }
   }
 
-  function drawStar(ctx, x, y, r, color) {
-    ctx.fillStyle = color;
+  function drawStar(ctx, x, y, r, on) {
+    ctx.save();
+    if (on) { ctx.shadowColor = "#ffc857"; ctx.shadowBlur = 9; }
+    // corps
     ctx.beginPath();
     for (let i = 0; i < 10; i++) {
-      const rr = i % 2 === 0 ? r : r * 0.45;
+      const rr = i % 2 === 0 ? r : r * 0.44;
       const a = -Math.PI / 2 + i * Math.PI / 5;
       const px = x + Math.cos(a) * rr, py = y + Math.sin(a) * rr;
       i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
     }
     ctx.closePath();
+    if (on) {
+      const g = ctx.createLinearGradient(x, y - r, x, y + r);
+      g.addColorStop(0, "#ffe89a"); g.addColorStop(1, "#f0a52f");
+      ctx.fillStyle = g;
+    } else {
+      ctx.fillStyle = "rgba(245,234,214,0.12)";
+    }
     ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = on ? "#a5761a" : "rgba(245,234,214,0.22)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ---------- arme équipée (haut-droite, sous les étoiles) ---------- */
+
+  const WEAPON_ORDER_HUD = ["fist", "bat", "pistol", "smg", "shotgun"];
+
+  function drawWeaponIcon(ctx, cx, cy, weapon, col) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.strokeStyle = "rgba(10,8,18,0.6)"; ctx.lineWidth = 1;
+    ctx.fillStyle = col;
+    switch (weapon) {
+      case "fist":
+        ctx.beginPath(); ctx.arc(0, 0, 7, 0, U.TAU); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = "rgba(10,8,18,0.5)";
+        for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.moveTo(-5, i * 2.6); ctx.lineTo(4, i * 2.6); ctx.stroke(); }
+        break;
+      case "bat":
+        ctx.rotate(-0.6); ctx.fillStyle = "#b08a5e";
+        roundedRect(ctx, -10, -2, 20, 4, 2); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#8a6a44"; roundedRect(ctx, -10, -2, 5, 4, 2); ctx.fill();
+        break;
+      case "pistol":
+        ctx.fillStyle = "#2a2d38";
+        roundedRect(ctx, -9, -3, 16, 5, 1); ctx.fill(); ctx.stroke();
+        roundedRect(ctx, -7, 1, 4, 6, 1); ctx.fill(); ctx.stroke();
+        break;
+      case "smg":
+        ctx.fillStyle = "#2a2d38";
+        roundedRect(ctx, -11, -3, 22, 5, 1); ctx.fill(); ctx.stroke();
+        roundedRect(ctx, -3, 1, 4, 7, 1); ctx.fill(); ctx.stroke();
+        break;
+      case "shotgun":
+        ctx.fillStyle = "#2a2d38";
+        roundedRect(ctx, -12, -2.5, 18, 4, 1); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#8a5a2c";
+        roundedRect(ctx, 4, -2.5, 8, 4, 1); ctx.fill(); ctx.stroke();
+        break;
+    }
+    ctx.restore();
   }
 
   function drawWeapon(ctx, w, W, H) {
     const pl = w.player;
     const wp = G.Ent.WEAPONS[pl.weapon];
-    const x = W - 16, y = 84;
-    ctx.font = "bold 14px 'Rubik','Trebuchet MS',sans-serif";
-    ctx.textAlign = "right"; ctx.textBaseline = "top";
+    const rm = 16;
+    const pw = 150, ph = 42;
+    const px = W - rm - pw, py = 92;
+    hudPanel(ctx, px, py, pw, ph, 8, "rgba(245,234,214,0.35)");
+
+    // pastille icône
+    const icX = px + 24, icY = py + ph / 2;
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath(); ctx.arc(icX, icY, 15, 0, U.TAU); ctx.fill();
+    drawWeaponIcon(ctx, icX, icY, pl.weapon, "#cfd6dc");
+
+    // nom + munitions
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    ctx.font = "bold 12px 'Rubik','Trebuchet MS',sans-serif";
     ctx.fillStyle = "#f5ead6";
-    let label = wp.name;
-    if (!wp.melee) label += "  ·  " + pl.ammo[pl.weapon];
-    ctx.fillStyle = "rgba(18,14,28,0.6)";
-    const tw = ctx.measureText(label).width + 18;
-    roundedRect(ctx, x - tw, y - 4, tw + 4, 24, 5); ctx.fill();
-    ctx.fillStyle = "#f5ead6";
-    ctx.fillText(label, x - 6, y);
+    ctx.fillText(wp.name, px + 46, py + 18);
+    if (wp.melee) {
+      ctx.font = "10px 'Rubik',sans-serif";
+      ctx.fillStyle = "rgba(245,234,214,0.55)";
+      ctx.fillText("corps à corps", px + 46, py + 32);
+    } else {
+      const ammo = pl.ammo[pl.weapon] || 0;
+      ctx.font = "bold 13px 'Rubik','Trebuchet MS',monospace";
+      ctx.fillStyle = ammo > 0 ? "#ffc857" : "#ff5340";
+      ctx.fillText(ammo + " balles", px + 46, py + 33);
+    }
   }
 
   /* ---------- dialogue ---------- */
@@ -459,43 +660,60 @@
   function drawDialogue(ctx, w, W, H) {
     const d = HUD.dialogue;
     const line = d.lines[d.i];
-    const bw = Math.min(720, W - 40), bh = 118;
+    const bw = Math.min(740, W - 40), bh = 126;
     const bx = W / 2 - bw / 2, by = H - bh - 18;
 
-    ctx.fillStyle = "rgba(18,14,28,0.92)";
-    roundedRect(ctx, bx, by, bw, bh, 10); ctx.fill();
+    // fond du panneau
+    const g = ctx.createLinearGradient(0, by, 0, by + bh);
+    g.addColorStop(0, "rgba(28,22,40,0.96)");
+    g.addColorStop(1, "rgba(16,12,24,0.96)");
+    ctx.fillStyle = g;
+    roundedRect(ctx, bx, by, bw, bh, 12); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(bx + 12, by + 0.5); ctx.lineTo(bx + bw - 12, by + 0.5); ctx.stroke();
     ctx.strokeStyle = "#ffc857"; ctx.lineWidth = 2;
-    roundedRect(ctx, bx, by, bw, bh, 10); ctx.stroke();
+    roundedRect(ctx, bx, by, bw, bh, 12); ctx.stroke();
 
-    // portrait
+    // portrait avec cadre
+    const ps = 100, ppx = bx + 13, ppy = by + 13;
+    ctx.fillStyle = "#0d1512";
+    roundedRect(ctx, ppx - 2, ppy - 2, ps + 4, ps + 4, 10); ctx.fill();
     const img = S.portrait(line.who);
     ctx.save();
-    roundedRect(ctx, bx + 12, by + 12, 94, 94, 8);
+    roundedRect(ctx, ppx, ppy, ps, ps, 8);
     ctx.clip();
-    ctx.drawImage(img, bx + 12, by + 12, 94, 94);
+    ctx.drawImage(img, ppx, ppy, ps, ps);
     ctx.restore();
-    ctx.strokeStyle = "#2ee6a8"; ctx.lineWidth = 1.5;
-    roundedRect(ctx, bx + 12, by + 12, 94, 94, 8); ctx.stroke();
+    ctx.strokeStyle = "#2ee6a8"; ctx.lineWidth = 2;
+    roundedRect(ctx, ppx, ppy, ps, ps, 8); ctx.stroke();
 
-    // nom
-    ctx.font = "bold 15px 'Rubik','Trebuchet MS',sans-serif";
-    ctx.textAlign = "left"; ctx.textBaseline = "top";
-    ctx.fillStyle = "#2ee6a8";
-    ctx.fillText(line.name, bx + 120, by + 14);
+    const tx = bx + 130;
+    // plaque de nom
+    ctx.font = "bold 15px 'Chakra Petch','Rubik',sans-serif";
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    const ntw = ctx.measureText(line.name).width;
+    ctx.fillStyle = "rgba(46,230,168,0.16)";
+    roundedRect(ctx, tx, by + 14, ntw + 20, 24, 6); ctx.fill();
+    ctx.strokeStyle = "rgba(46,230,168,0.5)"; ctx.lineWidth = 1;
+    roundedRect(ctx, tx, by + 14, ntw + 20, 24, 6); ctx.stroke();
+    ctx.fillStyle = "#5cf0b8";
+    ctx.fillText(line.name, tx + 10, by + 26);
 
     // texte machine à écrire
     ctx.font = "15px 'Rubik','Trebuchet MS',sans-serif";
-    ctx.fillStyle = "#f5ead6";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = "#f2e9d6";
     const shown = line.text.slice(0, Math.floor(d.chars));
-    const lines = wrapText(ctx, shown, bw - 140);
-    lines.slice(0, 4).forEach((l, i) => ctx.fillText(l, bx + 120, by + 40 + i * 19));
+    const lines = wrapText(ctx, shown, bw - 150);
+    lines.slice(0, 4).forEach((l, i) => ctx.fillText(l, tx, by + 50 + i * 20));
 
     // indication
     if (d.chars >= line.text.length) {
-      ctx.font = "12px 'Rubik','Trebuchet MS',sans-serif";
-      ctx.fillStyle = "rgba(255,200,87," + (0.5 + Math.sin(w.time * 5) * 0.4) + ")";
+      ctx.font = "bold 11px 'Rubik','Trebuchet MS',sans-serif";
+      ctx.fillStyle = "rgba(255,200,87," + (0.55 + Math.sin(w.time * 5) * 0.35) + ")";
       ctx.textAlign = "right";
-      ctx.fillText("[E] continuer  (" + (d.i + 1) + "/" + d.lines.length + ")", bx + bw - 14, by + bh - 20);
+      const arrow = Math.sin(w.time * 5) > 0 ? "▸ " : "▹ ";
+      ctx.fillText(arrow + "[E] continuer   " + (d.i + 1) + "/" + d.lines.length, bx + bw - 16, by + bh - 22);
     }
   }
 

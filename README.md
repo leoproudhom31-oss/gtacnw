@@ -96,8 +96,15 @@ volables, mobilier urbain, pickups cachés (santé, argent, armes, armure).
   n'oublient pas ce que Jin leur a fait ;
 - **GPS** : l'itinéraire est tracé en vert sur la minimap rotative, comme sur
   la carte de l'île ;
-- **HUD complet** : minimap rotative, vie/armure, argent, étoiles, arme,
-  objectifs, chronos, annonces de quartier, leçons de tutoriel contextuelles ;
+- **HUD soigné** : minimap rotative à accents dorés, jauges vie/armure
+  segmentées avec icônes cœur/bouclier, panneau d'argent à pièce, étoiles
+  de recherche lumineuses, sélecteur d'arme illustré (icône + munitions),
+  chrono, objectifs, annonces de quartier, leçons de tutoriel — tout dans
+  un langage de panneaux cohérent ;
+- **Portraits de dialogue** : vrais visages expressifs et distincts (yeux à
+  iris/reflets, ombrage du modelé, coiffures volumétriques, accessoires) —
+  Jin et son oreillette, l'oncle Wu et sa moustache tombante, le Requin
+  balafré, l'officier à lunettes aviateur, Long le mécano, le Lotus Noir ;
 - **Audio 100 % procédural** (WebAudio) : moteur, tirs, sirènes, klaxon,
   explosions, jingles, et une nappe pentatonique d'ambiance.
 
