@@ -266,9 +266,11 @@
     ctx.rotate(rot);
     const s = MM_SCALE; // monde → minimap
     const mmImg = G.Map.minimap;
-    const imgScale = s * 48 / 2; // le canvas minimap fait 2 px par tuile
+    const ppt = G.Map.MINIMAP_PPT;      // px du bitmap minimap par tuile monde
+    const worldPerImgPx = G.Map.T / ppt; // unités monde représentées par 1 px du bitmap
+    const imgScale = s * worldPerImgPx;
     ctx.scale(imgScale, imgScale);
-    ctx.translate(-pl.x / 24, -pl.y / 24);
+    ctx.translate(-pl.x / worldPerImgPx, -pl.y / worldPerImgPx);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(mmImg, 0, 0);
     ctx.imageSmoothingEnabled = true;
@@ -505,9 +507,11 @@
     ctx.fillRect(0, 0, W, H);
     const size = Math.min(W, H) - 90;
     const mx = W / 2 - size / 2, my = H / 2 - size / 2 + 10;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(G.Map.minimap, mx, my, size, size);
+    // grande carte : le bitmap source est assez fin pour être downscalé
+    // ici (jamais agrandi), donc lissage activé = rendu net, pas de blocs.
     ctx.imageSmoothingEnabled = true;
+    if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(G.Map.minimap, mx, my, size, size);
     ctx.strokeStyle = "#2ee6a8"; ctx.lineWidth = 2;
     ctx.strokeRect(mx, my, size, size);
 

@@ -849,8 +849,16 @@
   const CHUNK = 16;                 // tuiles par chunk
   const CPX = CHUNK * T;            // 768 px
   const CW = MW / CHUNK;            // 8 × 8 chunks
-  const chunkCache = new Map();     // idx -> canvas
-  const MAX_CHUNKS = 24;
+  const chunkCache = new Map();     // idx -> canvas (toujours en CPX×CPX)
+  const MAX_CHUNKS = 40;
+  const GSS = 2;                    // suréchantillonnage de cuisson : le
+                                     // chunk final mis en cache reste à
+                                     // CPX×CPX (même empreinte mémoire),
+                                     // seule la cuisson passe par un canvas
+                                     // temporaire 2× plus grand puis
+                                     // downscalé — bien meilleur anti-
+                                     // aliasing des routes/trottoirs/
+                                     // pointillés, coût nul en régime établi.
 
   const TILE_COLORS = {
     [WATER]: "#16535c", [GRASS]: "#7fae5a", [SIDEWALK]: "#cfc6b3",
@@ -866,9 +874,22 @@
       const first = chunkCache.keys().next().value;
       chunkCache.delete(first);
     }
+
+    // cuisson suréchantillonnée : on dessine en grand sur un canvas
+    // temporaire, puis on downscale dans le canvas final mis en cache.
+    const hi = document.createElement("canvas");
+    hi.width = CPX * GSS; hi.height = CPX * GSS;
+    const hiCtx = hi.getContext("2d");
+    hiCtx.scale(GSS, GSS);
+    renderChunk(hiCtx, ci, cj);
+
     c = document.createElement("canvas");
     c.width = CPX; c.height = CPX;
-    renderChunk(c.getContext("2d"), ci, cj);
+    const fCtx = c.getContext("2d");
+    fCtx.imageSmoothingEnabled = true;
+    if ("imageSmoothingQuality" in fCtx) fCtx.imageSmoothingQuality = "high";
+    fCtx.drawImage(hi, 0, 0, CPX, CPX);
+
     chunkCache.set(key, c);
     return c;
   }
@@ -1548,10 +1569,16 @@
      ========================================================= */
 
   let minimapCanvas = null;
+  // pixels par tuile : assez fin pour que la GRANDE carte (affichée en
+  // quasi plein écran) downscale au lieu d'upscaler — donc jamais
+  // blocage/pixelisée, même agrandie. La mini-carte du HUD garde son
+  // rendu au plus proche voisin (style volontairement stylisé), juste
+  // avec un grain plus fin qu'avant.
+  const MM_PPT = 6;
 
   function buildMinimap() {
     minimapCanvas = document.createElement("canvas");
-    minimapCanvas.width = MW * 2; minimapCanvas.height = MH * 2;
+    minimapCanvas.width = MW * MM_PPT; minimapCanvas.height = MH * MM_PPT;
     const ctx = minimapCanvas.getContext("2d");
     const cols = {
       [WATER]: "#0d3a41", [GRASS]: "#4f7a3a", [SIDEWALK]: "#8f8775",
@@ -1561,7 +1588,7 @@
     for (let y = 0; y < MH; y++)
       for (let x = 0; x < MW; x++) {
         ctx.fillStyle = cols[tiles[idx(x, y)]];
-        ctx.fillRect(x * 2, y * 2, 2, 2);
+        ctx.fillRect(x * MM_PPT, y * MM_PPT, MM_PPT, MM_PPT);
       }
   }
 
@@ -1599,7 +1626,7 @@
   }
 
   G.Map = {
-    T, MW, MH, WPX, HPX,
+    T, MW, MH, WPX, HPX, MINIMAP_PPT: MM_PPT,
     WATER, GRASS, SIDEWALK, ROAD, PLAZA, DOCK, PATH, BUILDING,
     LN, LS, LE, LW, DIRS,
     generate,

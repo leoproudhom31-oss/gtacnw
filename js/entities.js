@@ -1333,6 +1333,7 @@
     const base = S.vehicleSprite(type, color);
     c = document.createElement("canvas");
     c.width = base.width; c.height = base.height;
+    c.lw = base.lw; c.lh = base.lh;
     const ctx = c.getContext("2d");
     ctx.drawImage(base, 0, 0);
     ctx.globalCompositeOperation = "source-atop";
@@ -1356,7 +1357,7 @@
 
     ctx.rotate(v.angle);
     const spr = v.wreck ? wreckSprite(v.type, v.color) : S.vehicleSprite(v.type, v.color);
-    ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
+    ctx.drawImage(spr, 0, 0, spr.width, spr.height, -spr.lw / 2, -spr.lh / 2, spr.lw, spr.lh);
 
     // feux stop
     if (v.braking && !v.wreck) {

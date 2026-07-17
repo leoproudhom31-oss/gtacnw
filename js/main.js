@@ -8,6 +8,8 @@
 
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  if ("imageSmoothingQuality" in ctx) ctx.imageSmoothingQuality = "high";
   const titleScreen = document.getElementById("title-screen");
   const controlsScreen = document.getElementById("controls-screen");
   const loadingScreen = document.getElementById("loading-screen");
@@ -20,10 +22,29 @@
   let acc = 0;
   const STEP = 1 / 60;
   let viewW = 1280, viewH = 720;
-  let dpr = 1;
+
+  // --- résolution adaptative -----------------------------------------
+  // Écrans Retina/HiDPI : on VISE la vraie densité de l'écran (jusqu'à
+  // 2x — au-delà le gain visuel ne justifie plus le coût de remplissage)
+  // pour un rendu net. Mais ce jeu dessine énormément de vecteurs par
+  // frame (bâtiments, piétons, véhicules) : sur une scène très chargée
+  // (poursuite en centre-ville avec beaucoup de trafic), remplir 4× plus
+  // de pixels peut faire chuter le fps bien plus vite que prévu. On
+  // mesure donc le temps de frame en continu et on recule d'un cran si
+  // ça sature, puis on retente plus net dès que la charge retombe —
+  // qualité maximale par défaut, jamais au prix de la fluidité.
+  const DPR_STEP = 0.25, DPR_MIN = 1;
+  let dprCap = 2;     // densité native de l'écran, plafonnée à 2
+  let dpr = 2;         // densité RÉELLEMENT utilisée cette frame (adaptative)
+  let frameTimes = [];
+  let dprCheckT = 1;
 
   function resize() {
-    dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    dprCap = Math.min(window.devicePixelRatio || 1, 2);
+    dpr = Math.min(dpr, dprCap);
+    applyCanvasSize();
+  }
+  function applyCanvasSize() {
     viewW = window.innerWidth;
     viewH = window.innerHeight;
     canvas.width = Math.round(viewW * dpr);
@@ -31,8 +52,26 @@
     canvas.style.width = viewW + "px";
     canvas.style.height = viewH + "px";
   }
+  function adaptDpr(dt) {
+    frameTimes.push(dt);
+    if (frameTimes.length > 45) frameTimes.shift();
+    dprCheckT -= dt;
+    if (dprCheckT > 0 || frameTimes.length < 45) return;
+    dprCheckT = 1.1; // une réévaluation par seconde environ, pas plus
+    const avg = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
+    const fps = 1 / avg;
+    if (fps < 40 && dpr > DPR_MIN) {
+      dpr = Math.max(DPR_MIN, +(dpr - DPR_STEP).toFixed(2));
+      applyCanvasSize();
+    } else if (fps > 52 && dpr < dprCap) {
+      dpr = Math.min(dprCap, +(dpr + DPR_STEP).toFixed(2));
+      applyCanvasSize();
+    }
+  }
   window.addEventListener("resize", resize);
-  resize();
+  dprCap = Math.min(window.devicePixelRatio || 1, 2);
+  dpr = dprCap; // on démarre net ; adaptDpr() reculera si la scène sature
+  applyCanvasSize();
 
   /* ---------- écran titre ---------- */
 
@@ -96,6 +135,7 @@
     let dt = (now - last) / 1000;
     last = now;
     if (dt > 0.1) dt = 0.1; // onglet en arrière-plan
+    else adaptDpr(dt); // ignorer les dt géants (tab masqué) dans la moyenne
 
     // pause
     if (G.Input.wasPressed("Escape") || G.Input.wasPressed("KeyP")) {
@@ -161,7 +201,9 @@
       if (pl.vehicle) { pl.vehicle.x = x; pl.vehicle.y = y; }
       G.Camera.snapTo(x, y);
     },
-    get state() { return G.Game.state; }
+    get state() { return G.Game.state; },
+    get dpr() { return dpr; },
+    get dprCap() { return dprCap; }
   };
 
 })(window.G);

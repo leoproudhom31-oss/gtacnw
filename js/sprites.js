@@ -562,6 +562,10 @@
                       "#7f8c8d", "#2c3e50", "#f5f0e6", "#a04000", "#5d6d7e", "#7d3c98"];
 
   const vehicleCache = new Map();
+  const VSS = 3; // suréchantillonnage : les voitures sont cuites une fois
+                 // pour toutes, la mémoire supplémentaire est négligeable
+                 // (quelques dizaines de combinaisons type × couleur) —
+                 // autant les cuire nettes pour les écrans HiDPI et le zoom.
 
   function vehicleSprite(type, color) {
     const key = type + "|" + color;
@@ -570,11 +574,14 @@
 
     const def = VEHICLE_DEFS[type];
     const pad = 6;
+    const lw = def.L + pad * 2, lh = def.W + pad * 2; // dimensions logiques (unités monde)
     c = document.createElement("canvas");
-    c.width = def.L + pad * 2;
-    c.height = def.W + pad * 2;
+    c.width = Math.round(lw * VSS);
+    c.height = Math.round(lh * VSS);
+    c.lw = lw; c.lh = lh;
     const x = pad, y = pad, L = def.L, W = def.W;
     const ctx = c.getContext("2d");
+    ctx.scale(VSS, VSS);
     ctx.translate(x, y);
 
     const body = def.body || color;
@@ -1056,13 +1063,17 @@
      ========================================================= */
 
   const portraitCache = new Map();
+  const PSS = 2; // suréchantillonnage : quelques portraits seulement,
+                 // le coût mémoire est négligeable et le gain de netteté
+                 // très visible en gros plan de dialogue.
 
   function portrait(id) {
     let c = portraitCache.get(id);
     if (c) return c;
     c = document.createElement("canvas");
-    c.width = 96; c.height = 96;
+    c.width = 96 * PSS; c.height = 96 * PSS;
     const x = c.getContext("2d");
+    x.scale(PSS, PSS);
 
     // fond : motif « soleil levant »
     const bgs = { jin: "#0f3d30", wu: "#3d2f0f", shark: "#0f2f3d", cop: "#1a2440", lotus: "#241a30" };
