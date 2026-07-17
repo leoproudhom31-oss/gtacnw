@@ -29,27 +29,44 @@
   let PED_ID = 1;
 
   function makePed(kind, x, y, rng) {
+    const r = rng || Math.random;
     return {
       id: PED_ID++,
       etype: "ped",
       kind,                         // civ | cop | shark | lotus | wu
-      look: S.pedLook(kind, rng || Math.random),
+      look: S.pedLook(kind, r),
       x, y, vx: 0, vy: 0,
-      angle: (rng ? rng() : Math.random()) * U.TAU,
+      angle: r() * U.TAU,
       radius: 7,
+      scale: kind === "civ" ? 0.92 + r() * 0.16 : 1,
       hp: kind === "cop" ? 60 : (kind === "shark" || kind === "lotus") ? 55 : 35,
       dead: false,
       corpseT: 0,
-      state: "wander",              // wander | flee | chase | knocked
+      state: "wander",              // wander | flee | cower | chase | search | knocked | dummy
       walkPhase: 0,
-      idleT: 0.5 + Math.random() * 2,
+      idleT: 0.5 + r() * 2,
       tgtX: x, tgtY: y,
       threatX: 0, threatY: 0,
       weapon: kind === "cop" ? "pistol" : "fist",
       attackT: 0, shootT: 0,
-      knockT: 0,
+      knockT: 0, cowerT: 0,
       aggro: null,                  // entité ciblée (le joueur en général)
       stuckT: 0,
+      // vie de quartier
+      activity: null,               // sit | phone | chat
+      actT: 0,
+      chatWith: null,
+      pendingBench: null,
+      // témoin d'un crime
+      witness: false, phoneT: 0,
+      // combat
+      flankSide: r() < 0.5 ? -1 : 1,
+      strafeDir: 1, strafeT: 0,
+      burstLeft: 0,
+      // navigation
+      path: null, pathT: 0,
+      // police
+      searchX: 0, searchY: 0, searchT: 0,
       noDespawn: false,
       missionTag: null
     };
@@ -59,6 +76,9 @@
     if (p.dead) return;
     p.hp -= dmg;
     w.addParticle("blood", p.x, p.y, 4);
+    // interrompre toute activité en cours (banc, téléphone, discussion)
+    if (p.pendingBench) { p.pendingBench.busy = false; p.pendingBench = null; }
+    p.activity = null; p.actT = 0; p.chatWith = null;
     if (p.hp <= 0) {
       p.dead = true;
       p.corpseT = 18;
@@ -74,6 +94,10 @@
     } else if (srcKind === "player" || srcKind === "playercar") {
       p.state = "chase";
       p.aggro = w.player;
+      // le gang tout entier prend fait et cause
+      if (w.alertGang && (p.kind === "shark" || p.kind === "lotus") && !p.missionTag) {
+        w.alertGang(p.kind, p.x, p.y);
+      }
     }
   }
 
@@ -92,131 +116,329 @@
       return p.corpseT > 0;
     }
 
-    const player = w.player;
-    const dToPlayer = U.dist(p.x, p.y, player.x, player.y);
+    p.attackT = Math.max(0, p.attackT - dt);
+    p.shootT = Math.max(0, p.shootT - dt);
+    p.pathT = Math.max(0, p.pathT - dt);
 
     switch (p.state) {
+      case "dummy": return true;
       case "knocked": {
         p.knockT -= dt;
         p.x += p.vx * dt; p.y += p.vy * dt;
         p.vx *= Math.exp(-4 * dt); p.vy *= Math.exp(-4 * dt);
         M().collideCircle(p, p.radius);
         if (p.knockT <= 0) {
+          const player = w.player;
           p.state = (p.kind === "civ" || p.kind === "wu") ? "flee" : "chase";
           if (p.state === "chase") p.aggro = player;
           p.threatX = player.x; p.threatY = player.y;
         }
         return true;
       }
-
-      case "wander": {
-        if (p.idleT > 0) {
-          p.idleT -= dt;
-          p.walkPhase = 0;
-          p.vx = 0; p.vy = 0;
-        } else {
-          const d = U.dist(p.x, p.y, p.tgtX, p.tgtY);
-          if (d < 12) {
-            p.idleT = 0.5 + Math.random() * 3;
-            const spot = M().randomSidewalk(Math.random, p.x, p.y, 60, 260);
-            if (spot) { p.tgtX = spot.x; p.tgtY = spot.y; }
-          } else {
-            moveToward(p, w, p.tgtX, p.tgtY, 52, dt);
-          }
-        }
-        break;
+      case "cower": {
+        p.cowerT -= dt;
+        p.walkPhase = 0; p.vx = 0; p.vy = 0;
+        if (p.cowerT <= 0) p.state = "flee";
+        return true;
       }
+      case "wander": wanderUpdate(p, w, dt); break;
+      case "flee":   fleeUpdate(p, w, dt); break;
+      case "search": searchUpdate(p, w, dt); break;
+      case "chase":  chaseUpdate(p, w, dt); break;
+    }
+    return true;
+  }
 
-      case "flee": {
-        const dx = p.x - p.threatX, dy = p.y - p.threatY;
-        const d = Math.sqrt(dx * dx + dy * dy) || 1;
-        if (d > 560) { p.state = "wander"; p.idleT = 1; break; }
-        moveToward(p, w, p.x + (dx / d) * 100, p.y + (dy / d) * 100, 150, dt);
-        break;
+  /* ---------- vie de quartier ---------- */
+
+  function wanderUpdate(p, w, dt) {
+    // activité en cours (banc, téléphone, discussion)
+    if (p.actT > 0) {
+      p.actT -= dt;
+      p.walkPhase = 0; p.vx = 0; p.vy = 0;
+      if (p.activity === "chat" && p.chatWith && !p.chatWith.dead) {
+        p.angle = Math.atan2(p.chatWith.y - p.y, p.chatWith.x - p.x);
       }
-
-      case "chase": {
-        const t = p.aggro;
-        if (!t || t.hp <= 0 || t.busted) { p.state = "wander"; break; }
-        const d = U.dist(p.x, p.y, t.x, t.y);
-        const wp = WEAPONS[p.weapon];
-
-        // les flics abandonnent si plus recherché
-        if (p.kind === "cop" && w.wanted.level <= 0 && !p.missionTag) { p.state = "wander"; break; }
-        if (d > 900) { p.state = "wander"; break; }
-
-        if (wp.melee) {
-          if (d > wp.range + 6) {
-            moveToward(p, w, t.x, t.y, 150, dt);
-          } else {
-            p.walkPhase = 0;
-            p.vx = 0; p.vy = 0;
-            p.angle = Math.atan2(t.y - p.y, t.x - p.x);
-            if (p.attackT <= 0) {
-              p.attackT = wp.rate + 0.25;
-              if (U.dist(p.x, p.y, t.x, t.y) < wp.range + 8) {
-                w.hurtPlayer(wp.dmg * (p.kind === "cop" ? 0.6 : 1), p);
-                G.Audio.play("punchHit");
-              }
-            }
-          }
-        } else {
-          // armé : garder distance et tirer
-          const hasLOS = M().lineOfSight(p.x, p.y, t.x, t.y);
-          if (!hasLOS || d > 300) {
-            moveToward(p, w, t.x, t.y, 140, dt);
-          } else if (d < 110) {
-            const a = Math.atan2(p.y - t.y, p.x - t.x);
-            moveToward(p, w, p.x + Math.cos(a) * 60, p.y + Math.sin(a) * 60, 110, dt);
-            p.angle = Math.atan2(t.y - p.y, t.x - p.x);
-          } else {
-            p.walkPhase = 0;
-            p.vx = 0; p.vy = 0;
-            p.angle = Math.atan2(t.y - p.y, t.x - p.x);
-          }
-          if (hasLOS && d < 320 && p.shootT <= 0) {
-            p.shootT = wp.rate * 3.2 + Math.random() * 0.5;
-            const spread = 0.14;
-            const a = p.angle + (Math.random() * 2 - 1) * spread;
-            w.spawnBullet(p, p.x + Math.cos(a) * 12, p.y + Math.sin(a) * 12, a, wp.dmg, "enemy");
-            G.Audio.play("shot");
-            w.noise(p.x, p.y, 380, "shot");
-          }
-        }
-        break;
+      if (p.actT <= 0) {
+        if (p.pendingBench) { p.pendingBench.busy = false; p.pendingBench = null; }
+        p.activity = null; p.chatWith = null;
+        p.idleT = 0.4;
       }
+      return;
     }
 
-    p.attackT = Math.max(0, p.attackT - dt);
-    p.shootT = Math.max(0, p.shootT - dt);
-    return true;
+    if (p.idleT > 0) {
+      p.idleT -= dt;
+      p.walkPhase = 0; p.vx = 0; p.vy = 0;
+      return;
+    }
+
+    const d = U.dist(p.x, p.y, p.tgtX, p.tgtY);
+    if (d < 14) {
+      // arrivé : choisir la suite
+      if (p.pendingBench) {
+        // s'asseoir
+        p.x = p.pendingBench.x; p.y = p.pendingBench.y - 6;
+        p.angle = p.pendingBench.a + Math.PI / 2;
+        p.activity = "sit";
+        p.actT = 6 + Math.random() * 9;
+        return;
+      }
+      const roll = Math.random();
+      if (roll < 0.10 && p.kind === "civ") {
+        p.activity = "phone";
+        p.actT = 4 + Math.random() * 5;
+        return;
+      }
+      if (roll < 0.18 && p.kind === "civ" && w.findChatPartner) {
+        const other = w.findChatPartner(p);
+        if (other) {
+          p.activity = "chat"; p.chatWith = other;
+          other.activity = "chat"; other.chatWith = p;
+          p.actT = other.actT = 4 + Math.random() * 5;
+          other.idleT = 0;
+          return;
+        }
+      }
+      if (roll < 0.28 && p.kind === "civ") {
+        // un banc libre à proximité ?
+        const bench = nearestFreeBench(p, 200);
+        if (bench) {
+          bench.busy = true;
+          p.pendingBench = bench;
+          p.tgtX = bench.x; p.tgtY = bench.y - 6;
+          return;
+        }
+      }
+      p.idleT = 0.5 + Math.random() * 3;
+      pickWanderTarget(p);
+      return;
+    }
+
+    // en chemin : presser le pas sur la chaussée
+    const onRoad = M().get(Math.floor(p.x / 48), Math.floor(p.y / 48)) === M().ROAD;
+    moveToward(p, w, p.tgtX, p.tgtY, onRoad ? 92 : 52, dt);
+  }
+
+  function nearestFreeBench(p, range) {
+    let best = null, bd = range;
+    for (const b of M().benches) {
+      if (b.busy) continue;
+      const d = U.dist(p.x, p.y, b.x, b.y);
+      if (d < bd) { best = b; bd = d; }
+    }
+    return best;
+  }
+
+  function pickWanderTarget(p) {
+    // éviter de traverser inutilement les routes : 3 essais
+    for (let tries = 0; tries < 3; tries++) {
+      const spot = M().randomSidewalk(Math.random, p.x, p.y, 60, 260);
+      if (!spot) continue;
+      if (tries < 2 && roadCrossingLength(p.x, p.y, spot.x, spot.y) > 3) continue;
+      p.tgtX = spot.x; p.tgtY = spot.y;
+      return;
+    }
+  }
+
+  function roadCrossingLength(x0, y0, x1, y1) {
+    const Mp = M();
+    const d = U.dist(x0, y0, x1, y1);
+    const steps = Math.max(2, Math.ceil(d / 30));
+    let n = 0;
+    for (let i = 1; i < steps; i++) {
+      const t = i / steps;
+      if (Mp.get(Math.floor((x0 + (x1 - x0) * t) / 48), Math.floor((y0 + (y1 - y0) * t) / 48)) === Mp.ROAD) n++;
+    }
+    return n;
+  }
+
+  function fleeUpdate(p, w, dt) {
+    const dx = p.x - p.threatX, dy = p.y - p.threatY;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    // témoin : une fois à distance, s'arrête et appelle la police
+    if (p.witness) {
+      if (d > 300) {
+        p.walkPhase = 0; p.vx = 0; p.vy = 0;
+        p.activity = "phone";
+        p.phoneT -= dt;
+        if (p.phoneT <= 0) {
+          p.witness = false; p.activity = null;
+          w.onWitnessReport(p);
+          p.state = "wander"; p.idleT = 2;
+        }
+        return;
+      }
+      p.activity = null;
+    }
+
+    if (d > 560 && !p.witness) { p.state = "wander"; p.idleT = 1; p.activity = null; return; }
+    moveToward(p, w, p.x + (dx / d) * 100, p.y + (dy / d) * 100, 150, dt);
+  }
+
+  /* ---------- police : ratissage de la dernière position connue ---------- */
+
+  function searchUpdate(p, w, dt) {
+    if (w.wanted.level <= 0 && !p.missionTag) { p.state = "wander"; return; }
+    const pl = w.player;
+    // le suspect repasse en visuel ?
+    if (U.dist(p.x, p.y, pl.x, pl.y) < 460 && M().lineOfSight(p.x, p.y, pl.x, pl.y)) {
+      p.state = "chase"; p.aggro = pl;
+      return;
+    }
+    p.searchT -= dt;
+    if (p.searchT <= 0) { p.state = "wander"; return; }
+    const d = U.dist(p.x, p.y, p.tgtX, p.tgtY);
+    if (d < 18) {
+      p.tgtX = p.searchX + (Math.random() - 0.5) * 260;
+      p.tgtY = p.searchY + (Math.random() - 0.5) * 260;
+    }
+    moveToward(p, w, p.tgtX, p.tgtY, 120, dt);
+  }
+
+  /* ---------- combat ---------- */
+
+  function chaseUpdate(p, w, dt) {
+    const t = p.aggro;
+    if (!t || t.hp <= 0 || t.busted) { p.state = "wander"; return; }
+    const wp = WEAPONS[p.weapon];
+
+    // les flics abandonnent si plus recherché
+    if (p.kind === "cop" && w.wanted.level <= 0 && !p.missionTag) { p.state = "wander"; return; }
+
+    // cible réelle ou dernière position connue (police)
+    let tx = t.x, ty = t.y;
+    const d = U.dist(p.x, p.y, t.x, t.y);
+    const hasLOS = d < 520 && M().lineOfSight(p.x, p.y, t.x, t.y);
+    if (p.kind === "cop" && !p.missionTag && !hasLOS && w.wanted.lastSeenT < 12) {
+      tx = w.wanted.lastSeenX; ty = w.wanted.lastSeenY;
+      if (U.dist(p.x, p.y, tx, ty) < 44) {
+        // arrivé sur la dernière position : ratisser le secteur
+        p.state = "search";
+        p.searchX = tx; p.searchY = ty;
+        p.searchT = 8;
+        p.tgtX = tx; p.tgtY = ty;
+        return;
+      }
+    } else if (d > 900) { p.state = "wander"; return; }
+
+    if (wp.melee) {
+      if (d > wp.range + 6) {
+        // approche avec léger débordement pour encercler
+        let ax = tx, ay = ty;
+        if (d > 70 && hasLOS) {
+          const perp = Math.atan2(ty - p.y, tx - p.x) + Math.PI / 2;
+          const off = Math.min(46, d * 0.3) * p.flankSide;
+          ax += Math.cos(perp) * off; ay += Math.sin(perp) * off;
+        }
+        if (hasLOS) moveToward(p, w, ax, ay, 150, dt);
+        else followPath(p, w, tx, ty, 150, dt);
+      } else {
+        p.walkPhase = 0; p.vx = 0; p.vy = 0;
+        p.angle = Math.atan2(t.y - p.y, t.x - p.x);
+        if (p.attackT <= 0) {
+          p.attackT = wp.rate + 0.25;
+          if (U.dist(p.x, p.y, t.x, t.y) < wp.range + 8) {
+            w.hurtPlayer(wp.dmg * (p.kind === "cop" ? 0.6 : 1), p);
+            G.Audio.play("punchHit");
+          }
+        }
+      }
+    } else {
+      // tireur : distance de sécurité + strafe + tir en rafales
+      if (!hasLOS || d > 300) {
+        followPath(p, w, tx, ty, 140, dt);
+      } else if (d < 110) {
+        const a = Math.atan2(p.y - t.y, p.x - t.x);
+        moveToward(p, w, p.x + Math.cos(a) * 60, p.y + Math.sin(a) * 60, 110, dt);
+        p.angle = Math.atan2(t.y - p.y, t.x - p.x);
+      } else {
+        // pas chassés : mouvement latéral
+        p.strafeT -= dt;
+        if (p.strafeT <= 0) {
+          p.strafeT = 0.7 + Math.random() * 0.9;
+          p.strafeDir = Math.random() < 0.5 ? -1 : 1;
+        }
+        const perp = Math.atan2(t.y - p.y, t.x - p.x) + Math.PI / 2;
+        moveToward(p, w, p.x + Math.cos(perp) * 50 * p.strafeDir, p.y + Math.sin(perp) * 50 * p.strafeDir, 80, dt);
+        p.angle = Math.atan2(t.y - p.y, t.x - p.x);
+      }
+      const mayShoot = p.kind !== "cop" || w.wanted.level >= 2 || p.missionTag;
+      if (mayShoot && hasLOS && d < 320 && p.shootT <= 0) {
+        if (p.burstLeft > 0) {
+          p.burstLeft--;
+          p.shootT = 0.16;
+        } else {
+          p.burstLeft = 1 + (Math.random() * 2 | 0);
+          p.shootT = 0.9 + Math.random() * 0.8;
+        }
+        const a = Math.atan2(t.y - p.y, t.x - p.x) + (Math.random() * 2 - 1) * 0.13;
+        w.spawnBullet(p, p.x + Math.cos(a) * 12, p.y + Math.sin(a) * 12, a, wp.dmg, "enemy");
+        G.Audio.play("shot");
+        w.noise(p.x, p.y, 380, "shot");
+      }
+    }
+  }
+
+  /* ---------- navigation piétonne ---------- */
+
+  function followPath(p, w, tx, ty, speed, dt) {
+    const stale = !p.path || !p.path.length ||
+      U.dist(p.path[p.path.length - 1].x, p.path[p.path.length - 1].y, tx, ty) > 130;
+    if (stale && p.pathT <= 0) {
+      p.pathT = 1.1 + Math.random() * 0.4;
+      p.path = M().findWalkPath(p.x, p.y, tx, ty, 36);
+    }
+    if (p.path && p.path.length) {
+      const wp = p.path[0];
+      moveToward(p, w, wp.x, wp.y, speed, dt);
+      if (U.dist(p.x, p.y, wp.x, wp.y) < 22) p.path.shift();
+    } else {
+      moveToward(p, w, tx, ty, speed, dt);
+    }
   }
 
   function moveToward(p, w, tx, ty, speed, dt) {
     const dx = tx - p.x, dy = ty - p.y;
-    const d = Math.sqrt(dx * dx + dy * dy) || 1;
     const desired = Math.atan2(dy, dx);
     p.angle = U.angleDamp(p.angle, desired, 10, dt);
     const ox = p.x, oy = p.y;
     // vitesse mémorisée pour l'anticipation de la visée auto
     p.vx = Math.cos(p.angle) * speed;
     p.vy = Math.sin(p.angle) * speed;
-    p.x += Math.cos(p.angle) * speed * dt;
-    p.y += Math.sin(p.angle) * speed * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    // séparation locale : ne pas se marcher dessus
+    if (w.eachPedNear) {
+      let sx = 0, sy = 0;
+      w.eachPedNear(p.x, p.y, 22, (o) => {
+        if (o === p || o.dead) return;
+        const d2 = U.dist2(p.x, p.y, o.x, o.y);
+        if (d2 > 0.01 && d2 < 17 * 17) {
+          const d = Math.sqrt(d2);
+          const f = (17 - d) / d;
+          sx += (p.x - o.x) * f; sy += (p.y - o.y) * f;
+        }
+      });
+      p.x += sx * 4.5 * dt;
+      p.y += sy * 4.5 * dt;
+    }
+
     const hit = M().collideCircle(p, p.radius);
     if (hit) {
       p.stuckT += dt;
       if (p.stuckT > 0.7) {
         p.stuckT = 0;
-        // contourner : nouvelle cible aléatoire
         if (p.state === "wander") {
-          const spot = M().randomSidewalk(Math.random, p.x, p.y, 60, 200);
-          if (spot) { p.tgtX = spot.x; p.tgtY = spot.y; }
+          pickWanderTarget(p);
         } else {
-          // pas de chemin : glisser latéralement
+          // glisser le long de l'obstacle et forcer un recalcul de chemin
           p.x = ox + Math.cos(p.angle + Math.PI / 2) * speed * dt;
           p.y = oy + Math.sin(p.angle + Math.PI / 2) * speed * dt;
           M().collideCircle(p, p.radius);
+          p.path = null; p.pathT = 0;
         }
       }
     } else p.stuckT = 0;
@@ -233,11 +455,27 @@
     } else {
       const wp = WEAPONS[p.weapon];
       let pose = "idle";
-      const opt = { weapon: p.weapon === "fist" ? null : p.weapon };
-      if (p.attackT > 0 && wp.melee) { pose = "punch"; opt.punchT = U.clamp(p.attackT / wp.rate, 0, 1); }
-      else if (!wp.melee && p.state === "chase") { pose = "aim"; }
+      const opt = { weapon: p.weapon === "fist" ? null : p.weapon, scale: p.scale };
+      if (p.state === "cower") pose = "cower";
+      else if (p.activity === "sit") pose = "sit";
+      else if (p.activity === "phone") pose = "phone";
+      else if (p.attackT > 0 && wp.melee) { pose = "punch"; opt.punchT = U.clamp(p.attackT / wp.rate, 0, 1); }
+      else if (!wp.melee && (p.state === "chase" || p.state === "search")) { pose = "aim"; }
       else if (p.walkPhase > 0) pose = "walk";
       S.drawPed(ctx, p.look, p.angle, p.walkPhase, pose, opt);
+
+      // témoin en train d'alerter la police : bulle « ! »
+      if (p.witness) {
+        ctx.rotate(-G.Camera.rot);
+        ctx.fillStyle = "rgba(18,14,28,0.9)";
+        ctx.beginPath(); ctx.arc(0, -22, 7, 0, U.TAU); ctx.fill();
+        ctx.strokeStyle = "#ffc857"; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.arc(0, -22, 7, 0, U.TAU); ctx.stroke();
+        ctx.fillStyle = "#ffc857";
+        ctx.font = "bold 10px sans-serif";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("!", 0, -21);
+      }
     }
     ctx.restore();
   }
@@ -321,9 +559,16 @@
       if (In.attackTap && pl.attackT <= 0) {
         pl.attackT = wp.rate;
         pl.punchAnimT = 0.28;
-        // se tourner vers la cible la plus proche
-        const tgt = nearestHostile(pl, w, 60);
-        if (tgt) pl.angle = Math.atan2(tgt.y - pl.y, tgt.x - pl.x);
+        // se tourner vers la cible la plus proche + petit pas d'attaque
+        const tgt = nearestHostile(pl, w, 80);
+        if (tgt) {
+          pl.angle = Math.atan2(tgt.y - pl.y, tgt.x - pl.x);
+          if (U.dist(pl.x, pl.y, tgt.x, tgt.y) > 28) {
+            pl.x += Math.cos(pl.angle) * 8;
+            pl.y += Math.sin(pl.angle) * 8;
+            M().collideCircle(pl, pl.radius);
+          }
+        }
         let hit = false;
         for (const p of w.peds) {
           if (p.dead) continue;
@@ -550,6 +795,7 @@
      ========================================================= */
 
   let VEH_ID = 1;
+  const CORNERS = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
 
   function makeVehicle(type, x, y, angle, color) {
     const def = S.VEHICLE_DEFS[type];
@@ -563,6 +809,7 @@
       throttle: 0, steer: 0, handbrake: false,
       hp: def.hp, maxHp: def.hp,
       wreck: false, burnT: 0, explodeT: -1,
+      screechT: 0, braking: false,
       ai: null,               // { mode, tgtX, tgtY, cruise, blockedT, dir }
       driverKind: null,       // civ | cop | player | null (garé)
       copOut: false,
@@ -591,13 +838,13 @@
     if (!driving && vehicleSpeed(v) < 2) { v.vx = 0; v.vy = 0; return true; }
 
     // --- physique arcade ---
+    const def = v.def;
     const fw = { x: Math.cos(v.angle), y: Math.sin(v.angle) };
     const rt = { x: -fw.y, y: fw.x };
     let fSpd = v.vx * fw.x + v.vy * fw.y;
     let lSpd = v.vx * rt.x + v.vy * rt.y;
 
     // accélération / freinage
-    const def = v.def;
     if (v.throttle > 0) fSpd += def.accel * v.throttle * dt;
     else if (v.throttle < 0) {
       if (fSpd > 5) fSpd += def.accel * 1.6 * v.throttle * dt;      // frein
@@ -611,46 +858,56 @@
     // adhérence latérale (dérive au frein à main)
     lSpd *= Math.exp(-(v.handbrake ? 1.8 : def.grip) * dt);
 
-    // direction
+    // direction + moment induit par les chocs
     const steerEff = v.steer * def.turn * U.clamp(Math.abs(fSpd) / 130, 0, 1) * Math.sign(fSpd || 1);
-    v.angle += steerEff * (v.handbrake ? 1.5 : 1) * dt;
+    v.angle += (steerEff * (v.handbrake ? 1.5 : 1) + v.angVel) * dt;
+    v.angVel *= Math.exp(-5 * dt);
+
+    v.braking = v.throttle < -0.1 && fSpd > 15;
 
     v.vx = fw.x * fSpd + rt.x * lSpd;
     v.vy = fw.y * fSpd + rt.y * lSpd;
     v.x += v.vx * dt;
     v.y += v.vy * dt;
 
-    // traces de dérive
+    // traces + crissements de pneus
     if (v.handbrake && Math.abs(fSpd) > 90 && v.driverKind === "player") {
       w.addSkid(v);
     }
+    v.screechT = Math.max(0, v.screechT - dt);
+    if (((Math.abs(lSpd) > 62 && Math.abs(fSpd) > 100) || (v.braking && fSpd > 215)) &&
+        v.screechT <= 0 && U.dist2(v.x, v.y, w.player.x, w.player.y) < 700 * 700) {
+      G.Audio.play("screech");
+      v.screechT = 0.5;
+    }
 
-    // --- collisions monde : deux cercles (avant / arrière) ---
-    const halfL = def.L * 0.30, r = def.W * 0.52;
+    // --- collisions monde : les quatre coins de la caisse ---
+    const hl = def.L * 0.44, hw = def.W * 0.48;
     let impact = 0;
-    for (const s of [1, -1]) {
-      const px = { x: v.x + fw.x * halfL * s, y: v.y + fw.y * halfL * s };
-      const ox = px.x, oy = px.y;
-      if (M().collideCircle(px, r)) {
-        const dx = px.x - ox, dy = px.y - oy;
-        v.x += dx; v.y += dy;
-        // vitesse projetée sur la normale de poussée
-        const nl = Math.sqrt(dx * dx + dy * dy) || 1;
-        const nx = dx / nl, ny = dy / nl;
-        const vn = v.vx * nx + v.vy * ny;
-        if (vn < 0) {
-          impact = Math.max(impact, -vn);
-          v.vx -= nx * vn * 1.4;
-          v.vy -= ny * vn * 1.4;
-          v.angVel = 0;
-        }
+    for (const c of CORNERS) {
+      const ox = c[0] * hl, oy = c[1] * hw;
+      const wx = v.x + ox * fw.x - oy * fw.y;
+      const wy = v.y + ox * fw.y + oy * fw.x;
+      const push = M().pointPush(wx, wy);
+      if (!push) continue;
+      v.x += push.x; v.y += push.y;
+      const pl = Math.sqrt(push.x * push.x + push.y * push.y) || 1;
+      const nx = push.x / pl, ny = push.y / pl;
+      const vn = v.vx * nx + v.vy * ny;
+      if (vn < 0) {
+        impact = Math.max(impact, -vn);
+        v.vx -= nx * vn * 1.3;
+        v.vy -= ny * vn * 1.3;
+        // couple : un choc au coin fait pivoter la caisse
+        const rx = wx - v.x, ry = wy - v.y;
+        v.angVel += (rx * ny - ry * nx) * (-vn) * 0.00030;
       }
     }
     if (impact > 60) {
       const dmg = (impact - 50) * 0.14;
       damageVehicle(v, w, dmg, null);
       G.Audio.play("crash");
-      w.addParticle("spark", v.x + fw.x * halfL, v.y + fw.y * halfL, 5);
+      w.addParticle("spark", v.x + fw.x * hl, v.y + fw.y * hl, 5);
       if (v.driverKind === "player") G.Camera.shake(U.clamp(impact / 500, 0.1, 0.5));
       if (v.ai) v.ai.blockedT += 0.4;
     }
@@ -666,17 +923,22 @@
       const d = U.dist(v.x, v.y, o.x, o.y);
       const reach = (v.def.L + o.def.L) * 0.5;
       if (d > reach) continue;
-      // test simple : cercles centraux
+      // test simple : cercles centraux, réponse pondérée par les masses
       const cc = (v.def.L + o.def.L) * 0.30;
       if (d < cc) {
         const nx = (o.x - v.x) / (d || 1), ny = (o.y - v.y) / (d || 1);
         const overlap = cc - d;
-        v.x -= nx * overlap / 2; v.y -= ny * overlap / 2;
-        o.x += nx * overlap / 2; o.y += ny * overlap / 2;
+        const mv = v.def.mass, mo = o.def.mass, tm = mv + mo;
+        v.x -= nx * overlap * (mo / tm); v.y -= ny * overlap * (mo / tm);
+        o.x += nx * overlap * (mv / tm); o.y += ny * overlap * (mv / tm);
         const rel = (v.vx - o.vx) * nx + (v.vy - o.vy) * ny;
         if (rel > 0) {
-          v.vx -= nx * rel * 0.7; v.vy -= ny * rel * 0.7;
-          o.vx += nx * rel * 0.7; o.vy += ny * rel * 0.7;
+          v.vx -= nx * rel * 1.4 * (mo / tm); v.vy -= ny * rel * 1.4 * (mo / tm);
+          o.vx += nx * rel * 1.4 * (mv / tm); o.vy += ny * rel * 1.4 * (mv / tm);
+          // amorce de tête-à-queue selon le point de contact
+          const side = (o.x - v.x) * -Math.sin(v.angle) + (o.y - v.y) * Math.cos(v.angle);
+          v.angVel += Math.sign(side) * rel * 0.0006 * (mo / tm);
+          o.angVel -= Math.sign(side) * rel * 0.0006 * (mv / tm);
           if (rel > 70) {
             const dm = (rel - 50) * 0.12;
             damageVehicle(v, w, dm, o); damageVehicle(o, w, dm, v);
@@ -696,7 +958,7 @@
         const d = U.dist(v.x, v.y, p.x, p.y);
         if (d < def.L * 0.42 + p.radius) {
           const nx = (p.x - v.x) / (d || 1), ny = (p.y - v.y) / (d || 1);
-          pedKnock(p, w, v.vx * 0.7 + nx * 90, v.vy * 0.7 + ny * 90, sp * 0.30);
+          pedKnock(p, w, v.vx * 0.7 + nx * 90, v.vy * 0.7 + ny * 90, sp * 0.30 * def.mass);
           if (v.driverKind === "player") w.onPlayerRanOver(p);
           v.vx *= 0.92; v.vy *= 0.92;
         }
@@ -714,7 +976,11 @@
   function damageVehicle(v, w, dmg, src) {
     if (v.wreck) return;
     v.hp -= dmg;
-    if (src && src.etype === "player") v.lastDamager = "player";
+    // créditer le joueur : à pied, ou au volant de son bélier
+    if (src && (src.etype === "player" ||
+        (src.etype === "vehicle" && src.driverKind === "player"))) {
+      v.lastDamager = "player";
+    }
     if (v.hp <= 25 && v.explodeT < 0) {
       v.explodeT = 1.4; // compte à rebours d'explosion
       if (v.ai) { v.ai = null; } // le conducteur panique et cale
@@ -730,6 +996,7 @@
     w.addDecal("scorch", v.x, v.y);
     for (let i = 0; i < 26; i++) w.addParticle("fire", v.x + (Math.random() - 0.5) * 44, v.y + (Math.random() - 0.5) * 26, 3);
     for (let i = 0; i < 16; i++) w.addParticle("smoke", v.x + (Math.random() - 0.5) * 40, v.y + (Math.random() - 0.5) * 24, 3);
+    for (let i = 0; i < 12; i++) w.addParticle("debris", v.x, v.y, 1);
     w.addParticle("ring", v.x, v.y, 1);
     // dégâts de zone
     for (const p of w.peds) {
@@ -754,12 +1021,20 @@
     const ai = v.ai;
     const Mp = M();
 
+    if (ai.mode === "roadblock") {
+      // barrage : rester en travers, moteur coupé
+      v.throttle = 0; v.steer = 0;
+      return;
+    }
+
     if (ai.mode === "chase") {
-      // voiture de police : foncer sur le joueur
+      // voiture de police : intercepter la trajectoire du fuyard
       const pl = w.player;
-      const tx = pl.x + pl.vx * 0.4, ty = pl.y + pl.vy * 0.4;
-      steerTowards(v, tx, ty, dt);
+      const src = pl.vehicle || pl;
       const d = U.dist(v.x, v.y, pl.x, pl.y);
+      const lead = U.clamp(d / 320, 0, 1.1); // anticipation en secondes
+      const tx = pl.x + src.vx * lead, ty = pl.y + src.vy * lead;
+      steerTowards(v, tx, ty, dt);
       if (!pl.vehicle && d < 130) {
         // s'arrêter et déposer un agent
         v.throttle = -1;
@@ -782,45 +1057,89 @@
 
     // --- croisière sur les voies ---
     if (ai.tgtX == null) pickNextLaneTarget(v, w);
-    const dx = ai.tgtX - v.x, dy = ai.tgtY - v.y;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d < 26) { pickNextLaneTarget(v, w); }
+    if (U.dist(v.x, v.y, ai.tgtX, ai.tgtY) < 26) pickNextLaneTarget(v, w);
 
-    steerTowards(v, ai.tgtX, ai.tgtY, dt);
+    // écart latéral temporaire pour contourner une épave
+    ai.swerveT = Math.max(0, (ai.swerveT || 0) - dt);
+    let tgtX = ai.tgtX, tgtY = ai.tgtY;
+    if (ai.swerveT > 0) {
+      const perp = v.angle + Math.PI / 2;
+      tgtX += Math.cos(perp) * 34 * ai.swerveDir;
+      tgtY += Math.sin(perp) * 34 * ai.swerveDir;
+    }
+    steerTowards(v, tgtX, tgtY, dt);
 
     const cruise = ai.panicT > 0 ? 240 : ai.cruise;
     ai.panicT = Math.max(0, (ai.panicT || 0) - dt);
     const sp = vehicleSpeed(v);
+    const ca = Math.cos(v.angle), sa = Math.sin(v.angle);
+    let targetSpd = cruise;
 
-    // obstacle devant ?
-    const lookAhead = 46 + sp * 0.45;
-    const px = v.x + Math.cos(v.angle) * lookAhead;
-    const py = v.y + Math.sin(v.angle) * lookAhead;
-    let blocked = false;
-    for (const o of w.vehicles) {
-      if (o === v) continue;
-      if (U.dist2(px, py, o.x, o.y) < 42 * 42) { blocked = true; break; }
-    }
-    if (!blocked) {
-      const pl = w.player;
-      if (!pl.vehicle && U.dist2(px, py, pl.x, pl.y) < 36 * 36) blocked = true;
-      if (!blocked) for (const p of w.peds) {
-        if (p.dead) continue;
-        if (U.dist2(px, py, p.x, p.y) < 26 * 26) { blocked = true; break; }
+    // — suivi de file : la voiture devant dicte l'allure —
+    let lead = null, leadProj = 1e9;
+    const scan = (o) => {
+      if (o === v) return;
+      const rx = o.x - v.x, ry = o.y - v.y;
+      const proj = rx * ca + ry * sa;          // distance devant
+      const lat = Math.abs(-rx * sa + ry * ca); // écart latéral
+      if (proj > 10 && proj < 150 && lat < 30 && proj < leadProj) { lead = o; leadProj = proj; }
+    };
+    if (w.eachVehNear) w.eachVehNear(v.x + ca * 80, v.y + sa * 80, 110, scan);
+    else for (const o of w.vehicles) scan(o);
+
+    if (lead) {
+      const leadSpd = lead.vx * ca + lead.vy * sa;
+      const gap = leadProj - (v.def.L + lead.def.L) * 0.5;
+      targetSpd = Math.min(targetSpd, Math.max(0, leadSpd + (gap - 30) * 1.6));
+      // épave ou véhicule à l'arrêt : tenter un déboîtement
+      const leadStopped = Math.abs(leadSpd) < 14 && (lead.wreck || !lead.ai || lead.driverKind === null);
+      if (leadStopped && gap < 95 && gap > 20 && ai.swerveT <= 0 && ai.panicT <= 0) {
+        for (const side of [ai.swerveDir || 1, -(ai.swerveDir || 1)]) {
+          const cx = v.x + ca * 75 - sa * 34 * side;
+          const cy = v.y + sa * 75 + ca * 34 * side;
+          let free = Mp.get(Math.floor(cx / 48), Math.floor(cy / 48)) === Mp.ROAD;
+          if (free && w.eachVehNear) w.eachVehNear(cx, cy, 40, (o) => { if (o !== v && o !== lead && U.dist2(cx, cy, o.x, o.y) < 38 * 38) free = false; });
+          if (free) { ai.swerveDir = side; ai.swerveT = 1.5; break; }
+        }
       }
     }
 
-    if (blocked && ai.panicT <= 0) {
-      v.throttle = sp > 30 ? -1 : 0;
+    // — piéton ou joueur sur la trajectoire —
+    if (targetSpd > 0) {
+      const lookAhead = 40 + sp * 0.45;
+      const px = v.x + ca * lookAhead, py = v.y + sa * lookAhead;
+      const pl = w.player;
+      if (!pl.vehicle && U.dist2(px, py, pl.x, pl.y) < 36 * 36) targetSpd = 0;
+      else if (w.eachPedNear) {
+        w.eachPedNear(px, py, 30, (p) => {
+          if (!p.dead && U.dist2(px, py, p.x, p.y) < 26 * 26) targetSpd = 0;
+        });
+      }
+    }
+
+    // — lever le pied aux intersections —
+    if (ai.panicT <= 0) {
+      const ttx = Math.floor(ai.tgtX / 48), tty = Math.floor(ai.tgtY / 48);
+      const m = Mp.laneMaskAt(ttx, tty);
+      const isCross = (m & (Mp.LN | Mp.LS)) && (m & (Mp.LE | Mp.LW));
+      if (isCross) targetSpd = Math.min(targetSpd, 95);
+    }
+
+    // — accélérateur / frein + gestion de blocage —
+    if (targetSpd < 12 && sp < 25) {
+      v.throttle = 0;
       ai.blockedT += dt;
+      if (ai.blockedT > 1.6 && !ai.horned && U.dist2(v.x, v.y, w.player.x, w.player.y) < 600 * 600) {
+        ai.horned = true;
+        G.Audio.play("horn");
+      }
       if (ai.blockedT > 4) {
-        // marche arrière de dégagement
         v.throttle = -0.7; v.steer = 0.8;
-        if (ai.blockedT > 5.2) { ai.blockedT = 0; pickNextLaneTarget(v, w); }
+        if (ai.blockedT > 5.2) { ai.blockedT = 0; ai.horned = false; pickNextLaneTarget(v, w); }
       }
     } else {
-      ai.blockedT = 0;
-      v.throttle = sp < cruise ? 0.75 : 0;
+      if (ai.blockedT > 0 && sp > 40) { ai.blockedT = 0; ai.horned = false; }
+      v.throttle = sp < targetSpd ? 0.75 : (sp > targetSpd + 30 ? -0.6 : 0);
     }
   }
 
@@ -907,6 +1226,13 @@
     const spr = v.wreck ? wreckSprite(v.type, v.color) : S.vehicleSprite(v.type, v.color);
     ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
 
+    // feux stop
+    if (v.braking && !v.wreck) {
+      ctx.fillStyle = "rgba(255,60,60,0.55)";
+      ctx.beginPath(); ctx.arc(-v.def.L / 2 + 1, -v.def.W / 2 + 4, 3.6, 0, U.TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(-v.def.L / 2 + 1, v.def.W / 2 - 4, 3.6, 0, U.TAU); ctx.fill();
+    }
+
     if (v.type === "police" && !v.wreck && (v.siren || v.ai)) {
       // gyrophare
       const ph = Math.floor(v.lightT * 6) % 2;
@@ -979,6 +1305,13 @@
           w.addParticle("spark", b.x, b.y, 2);
           return false;
         }
+      }
+      // hélicoptère (arcade : on ignore l'altitude)
+      if (b.team === "player" && w.heli && !w.heli.dead &&
+          U.dist2(b.x, b.y, w.heli.x, w.heli.y) < 26 * 26) {
+        w.onHeliHit(b.dmg);
+        w.addParticle("spark", b.x, b.y, 3);
+        return false;
       }
     }
     return true;
@@ -1155,6 +1488,11 @@
         p.vx = (Math.random() - 0.5) * 60; p.vy = -70;
         p.maxLife = p.life = 0.8; p.size = 5;
         break;
+      case "debris":
+        p.vx = (Math.random() - 0.5) * 340; p.vy = (Math.random() - 0.5) * 340;
+        p.maxLife = p.life = 0.5 + Math.random() * 0.5; p.size = 2.5 + Math.random() * 3;
+        p.spin = Math.random() * U.TAU;
+        break;
     }
     return p;
   }
@@ -1166,6 +1504,7 @@
     if (p.type === "smoke") { p.size += 8 * dt; p.vx *= 0.98; }
     if (p.type === "ring") p.size += 340 * dt;
     if (p.type === "cashpop") p.vy += 160 * dt;
+    if (p.type === "debris") { p.vx *= 0.94; p.vy *= 0.94; p.spin += dt * 9; }
     return true;
   }
 
@@ -1200,6 +1539,14 @@
       case "cashpop":
         ctx.fillStyle = "rgba(120,220,140," + a + ")";
         ctx.fillRect(p.x - 3, p.y - 2, 6, 4);
+        break;
+      case "debris":
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.spin);
+        ctx.fillStyle = "rgba(30,26,34," + a + ")";
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.7);
+        ctx.restore();
         break;
     }
   }

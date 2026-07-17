@@ -295,6 +295,15 @@
         ctx.beginPath(); ctx.arc(p.x, p.y, 3.4, 0, U.TAU); ctx.fill();
       }
     }
+    // hélicoptère
+    if (w.heli && !w.heli.dead) {
+      const p = toMM(w.heli.x, w.heli.y);
+      ctx.fillStyle = "#7ad7ff";
+      ctx.strokeStyle = "#12101a"; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 4.4, 0, U.TAU); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#12101a";
+      ctx.beginPath(); ctx.arc(p.x, p.y, 1.6, 0, U.TAU); ctx.fill();
+    }
     for (const p of w.peds) {
       if (p.dead) continue;
       if (p.kind === "cop" && p.state === "chase") {

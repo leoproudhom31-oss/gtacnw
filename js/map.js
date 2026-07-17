@@ -33,6 +33,7 @@
   const buildings = [];   // { x,y,w,h (px), height, wall, roof, ... }
   const structures = [];  // tout ce qui se dessine avec élévation (tri par distance)
   const flatProps = [];   // props plats dessinés avec les entités (bancs, bouches…)
+  const benches = [];     // bancs où les piétons peuvent s'asseoir
   const solidProps = [];  // collisions { shape:'circle'|'rect', ... }
   const solidGrid = new Map(); // tile idx -> [solidProps]
   const parkedSpawns = [];
@@ -465,7 +466,10 @@
     for (let x = 12; x <= 116; x += 7) {
       if (get(x, 81) === PLAZA) {
         addTree(x % 14 === 12 ? "cherry" : "tree", (x + 0.5) * T, 81.5 * T, rng);
-        if (rng() < 0.5) flatProps.push({ type: "bench", x: (x + 3.5) * T, y: 82.2 * T, a: 0 });
+        if (rng() < 0.5) {
+          const b = { type: "bench", x: (x + 3.5) * T, y: 82.2 * T, a: 0 };
+          flatProps.push(b); benches.push(b);
+        }
       }
     }
     // berge sud (90..95) : parc à conteneurs
@@ -549,8 +553,10 @@
       if (get(tx, ty) !== GRASS) continue;
       addTree(rng() < 0.45 ? "cherry" : "tree", x, y, rng);
     }
-    for (const [bx, by] of [[99, 58.6], [110, 73.6], [114.8, 65]])
-      flatProps.push({ type: "bench", x: bx * T, y: by * T, a: 0 });
+    for (const [bx, by] of [[99, 58.6], [110, 73.6], [114.8, 65]]) {
+      const b = { type: "bench", x: bx * T, y: by * T, a: 0 };
+      flatProps.push(b); benches.push(b);
+    }
     for (const [lx, ly] of [[98.5, 57.5], [106.5, 71.8], [114.5, 57.5]])
       addLantern(lx * T, ly * T);
   }
@@ -689,8 +695,11 @@
       const t = get(Math.floor(x / T), Math.floor(y / T));
       if (t !== PLAZA && t !== SIDEWALK && t !== GRASS && t !== DOCK) continue;
       const kind = U.pick(rng, kinds);
-      if (kind === "bench") flatProps.push({ type: "bench", x, y, a: rng() < 0.5 ? 0 : Math.PI / 2 });
-      else {
+      if (kind === "bench") {
+        const b = { type: "bench", x, y, a: rng() < 0.5 ? 0 : Math.PI / 2 };
+        flatProps.push(b);
+        benches.push(b);
+      } else {
         flatProps.push({ type: kind, x, y });
         addSolid({ shape: "circle", x, y, r: kind === "planter" ? 8 : 5 });
       }
@@ -961,6 +970,33 @@
         break;
       }
     }
+
+    // occlusion ambiante au pied des bâtiments
+    if (t !== BUILDING && t !== WATER) {
+      ctx.fillStyle = "rgba(18,14,28,0.16)";
+      if (get(gx, gy - 1) === BUILDING) ctx.fillRect(px, py, T, 7);
+      if (get(gx, gy + 1) === BUILDING) ctx.fillRect(px, py + T - 7, T, 7);
+      if (get(gx - 1, gy) === BUILDING) ctx.fillRect(px, py, 7, T);
+      if (get(gx + 1, gy) === BUILDING) ctx.fillRect(px + T - 7, py, 7, T);
+    }
+  }
+
+  // reflets animés sur l'eau visible (appelé chaque frame, hors cache)
+  function drawWaterOverlay(ctx, vx0, vy0, vx1, vy1, time) {
+    const tx0 = U.clamp(Math.floor(vx0 / T), 0, MW - 1);
+    const ty0 = U.clamp(Math.floor(vy0 / T), 0, MH - 1);
+    const tx1 = U.clamp(Math.floor(vx1 / T), 0, MW - 1);
+    const ty1 = U.clamp(Math.floor(vy1 / T), 0, MH - 1);
+    ctx.fillStyle = "rgba(122,215,255,0.10)";
+    for (let ty = ty0; ty <= ty1; ty++) {
+      for (let tx = tx0; tx <= tx1; tx++) {
+        if (tiles[idx(tx, ty)] !== WATER) continue;
+        const h = tileHash(tx, ty);
+        if (h > 0.5) continue; // un reflet sur deux tuiles
+        const ph = (time * (10 + h * 16) + h * 480) % (T + 26) - 13;
+        ctx.fillRect(tx * T + ph, ty * T + 8 + h * 60, 13 + h * 14, 2.4);
+      }
+    }
   }
 
   function drawRoadMarkings(ctx, x0, y0, x1, y1) {
@@ -1185,6 +1221,43 @@
     return true;
   }
 
+  /**
+   * Résolution ponctuelle : si (x,y) est dans un obstacle plein (tuile ou
+   * prop rectangulaire), renvoie le vecteur de sortie minimal, sinon null.
+   * Utilisé par la collision « coins » des véhicules.
+   */
+  function pointPush(x, y) {
+    const tx = Math.floor(x / T), ty = Math.floor(y / T);
+    if (isSolidTile(tx, ty)) {
+      return aabbPush(x, y, tx * T, ty * T, T, T);
+    }
+    const list = solidGrid.get(idx(tx, ty));
+    if (list) {
+      for (const sp of list) {
+        if (sp.shape === "rect") {
+          if (x >= sp.x && x < sp.x + sp.w && y >= sp.y && y < sp.y + sp.h)
+            return aabbPush(x, y, sp.x, sp.y, sp.w, sp.h);
+        } else {
+          const d2 = U.dist2(x, y, sp.x, sp.y);
+          if (d2 < sp.r * sp.r) {
+            const d = Math.sqrt(d2) || 0.01;
+            return { x: (x - sp.x) / d * (sp.r - d), y: (y - sp.y) / d * (sp.r - d) };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function aabbPush(x, y, rx, ry, rw, rh) {
+    const l = x - rx, r = rx + rw - x, t = y - ry, b = ry + rh - y;
+    const m = Math.min(l, r, t, b);
+    if (m === l) return { x: -l, y: 0 };
+    if (m === r) return { x: r, y: 0 };
+    if (m === t) return { x: 0, y: -t };
+    return { x: 0, y: b };
+  }
+
   // Un point est-il opaque aux balles / à la ligne de vue ?
   function blocksShot(px, py) {
     const tx = Math.floor(px / T), ty = Math.floor(py / T);
@@ -1232,6 +1305,54 @@
       }
     }
     return -1;
+  }
+
+  /**
+   * Chemin piéton : BFS sur les tuiles praticables (tout sauf eau/bâtiment),
+   * limité à maxR tuiles autour du départ. Renvoie des jalons en px
+   * (une tuile sur deux pour lisser), ou null.
+   */
+  function findWalkPath(x0, y0, x1, y1, maxR) {
+    maxR = maxR || 36;
+    const sx = U.clamp(Math.floor(x0 / T), 0, MW - 1), sy = U.clamp(Math.floor(y0 / T), 0, MH - 1);
+    const ex = U.clamp(Math.floor(x1 / T), 0, MW - 1), ey = U.clamp(Math.floor(y1 / T), 0, MH - 1);
+    if (Math.abs(ex - sx) > maxR || Math.abs(ey - sy) > maxR) return null;
+    const s = idx(sx, sy), e = idx(ex, ey);
+    if (isSolidTile(sx, sy) || isSolidTile(ex, ey)) return null;
+    if (s === e) return null;
+    _came.fill(-1);
+    _q.reset();
+    _q.push(s);
+    _came[s] = s;
+    let found = false;
+    while (_q.length) {
+      const cur = _q.shift();
+      if (cur === e) { found = true; break; }
+      const cx = cur % MW, cy = (cur / MW) | 0;
+      if (Math.abs(cx - sx) > maxR || Math.abs(cy - sy) > maxR) continue;
+      for (const d of DIRS) {
+        const nx = cx + d.dx, ny = cy + d.dy;
+        if (!inB(nx, ny)) continue;
+        const ni = idx(nx, ny);
+        if (_came[ni] !== -1 || isSolidTile(nx, ny)) continue;
+        _came[ni] = cur;
+        _q.push(ni);
+      }
+    }
+    if (!found) return null;
+    const path = [];
+    let cur = e;
+    while (cur !== s) {
+      path.push({ x: (cur % MW + 0.5) * T, y: ((cur / MW | 0) + 0.5) * T });
+      cur = _came[cur];
+    }
+    path.reverse();
+    // garder un jalon sur deux (sauf le dernier)
+    const out = [];
+    for (let i = 0; i < path.length; i++) {
+      if (i % 2 === 0 || i === path.length - 1) out.push(path[i]);
+    }
+    return out;
   }
 
   function findRoadPath(x0, y0, x1, y1) {
@@ -1330,12 +1451,12 @@
     generate,
     get, laneMaskAt, isRoad, isSolidTile, isSolidAt, isWalkable,
     isBridge: (tx, ty) => inB(tx, ty) && bridgeF[idx(tx, ty)] === 1,
-    collideCircle, blocksShot, lineOfSight,
-    nearestRoadTile, findRoadPath,
-    drawGround, drawStructures,
+    collideCircle, blocksShot, lineOfSight, pointPush,
+    nearestRoadTile, findRoadPath, findWalkPath,
+    drawGround, drawStructures, drawWaterOverlay,
     districtAt,
     get minimap() { return minimapCanvas; },
-    POI, parkedSpawns, pickupSpawns, buildings,
+    POI, parkedSpawns, pickupSpawns, buildings, benches,
     randomSidewalk, randomLaneTile, randomWalkable
   };
 

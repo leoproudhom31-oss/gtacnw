@@ -24,12 +24,36 @@
     decals: [],
     skids: [],
 
-    wanted: { level: 0, heat: 0, unseenT: 0, evadeT: 0, bustT: 0 },
+    wanted: { level: 0, heat: 0, unseenT: 0, evadeT: 0, bustT: 0,
+              lastSeenX: 0, lastSeenY: 0, lastSeenT: 99 },
+
+    heli: null,          // hélicoptère de police (4★+)
+    roadblock: null,     // barrage routier actif (3★+)
+    _heliRespawnT: 0,
+    _rbT: 0,
 
     _spawnT: 0,
     _districtT: 0,
     _stateT: 0,
     _rng: U.makeRng(Date.now() >>> 0)
+  };
+
+  // grilles spatiales, reconstruites à chaque pas de simulation
+  const pedGrid = U.makeGrid(96);
+  const vehGrid = U.makeGrid(128);
+
+  W.eachPedNear = (x, y, r, cb) => pedGrid.near(x, y, r, cb);
+  W.eachVehNear = (x, y, r, cb) => vehGrid.near(x, y, r, cb);
+
+  // partenaire de discussion : un autre civil inactif tout proche
+  W.findChatPartner = function (p) {
+    let best = null;
+    pedGrid.near(p.x, p.y, 60, (o) => {
+      if (best || o === p || o.dead || o.kind !== "civ") return;
+      if (o.state !== "wander" || o.activity || o.idleT <= 0) return;
+      if (U.dist2(p.x, p.y, o.x, o.y) < 60 * 60) best = o;
+    });
+    return best;
   };
 
   /* =========================================================
@@ -40,7 +64,10 @@
     const Mp = G.Map;
     W.peds = []; W.vehicles = []; W.bullets = [];
     W.particles = []; W.pickups = []; W.decals = []; W.skids = [];
-    W.wanted = { level: 0, heat: 0, unseenT: 0, evadeT: 0, bustT: 0 };
+    W.wanted = { level: 0, heat: 0, unseenT: 0, evadeT: 0, bustT: 0,
+                 lastSeenX: 0, lastSeenY: 0, lastSeenT: 99 };
+    W.heli = null; W.roadblock = null;
+    W._heliRespawnT = 0; W._rbT = 0;
     W.time = 0;
 
     // joueur : Jin débarque du ferry, au bout de la jetée
@@ -67,7 +94,9 @@
 
     // voitures garées
     for (const s of Mp.parkedSpawns) {
-      W.vehicles.push(E().makeVehicle(s.type, s.x, s.y, s.angle, s.color));
+      const v = E().makeVehicle(s.type, s.x, s.y, s.angle, s.color);
+      v.parked = true;
+      W.vehicles.push(v);
     }
 
     // pickups de la carte
@@ -148,8 +177,19 @@
     for (const p of W.peds) {
       if (p.dead || p.staticNpc) continue;
       if (p.kind === "civ" && U.dist2(p.x, p.y, x, y) < r * r) {
-        p.state = "flee";
-        p.threatX = x; p.threatY = y;
+        if (p.state === "wander" || p.state === "flee") {
+          p.threatX = x; p.threatY = y;
+          if (p.pendingBench) { p.pendingBench.busy = false; p.pendingBench = null; }
+          p.activity = null; p.chatWith = null; p.actT = 0;
+          // tout près d'une fusillade : certains se jettent au sol
+          if (kind === "shot" && p.state === "wander" &&
+              U.dist2(p.x, p.y, x, y) < 170 * 170 && Math.random() < 0.35) {
+            p.state = "cower";
+            p.cowerT = 1.5 + Math.random() * 2;
+          } else {
+            p.state = "flee";
+          }
+        }
       }
     }
     // les voitures proches paniquent
@@ -175,6 +215,29 @@
     return false;
   }
 
+  // un crime vient d'être commis : les civils qui l'ont vu deviennent témoins
+  W.crimeWitnessed = function (x, y) {
+    let n = 0;
+    for (const p of W.peds) {
+      if (n >= 2) break;
+      if (p.dead || p.kind !== "civ" || p.staticNpc || p.witness) continue;
+      if (U.dist2(p.x, p.y, x, y) > 260 * 260) continue;
+      if (!G.Map.lineOfSight(p.x, p.y, x, y)) continue;
+      p.witness = true;
+      p.phoneT = 3 + Math.random() * 2;
+      p.state = "flee";
+      p.threatX = x; p.threatY = y;
+      p.activity = null; p.actT = 0;
+      n++;
+    }
+  };
+
+  W.onWitnessReport = function (p) {
+    if (W.wanted.heat < 35) W.setWanted(1);
+    else W.addHeat(14, true);
+    W.toast("Un témoin a alerté la police !");
+  };
+
   W.addHeat = function (amount, forceSeen) {
     if (!forceSeen && !copNearby(W.player.x, W.player.y, 520)) amount *= 0.4;
     W.wanted.heat = U.clamp(W.wanted.heat + amount, 0, 5 * 35 + 30);
@@ -187,17 +250,35 @@
   };
 
   function refreshWantedLevel() {
+    const prev = W.wanted.level;
     const lvl = Math.min(5, Math.floor(W.wanted.heat / 35));
-    if (lvl > W.wanted.level) {
+    if (lvl > prev) {
       G.Audio.play("star");
       G.Camera.shake(0.1);
     }
     W.wanted.level = lvl;
+    if (lvl === 0 && prev > 0) standDown();
+  }
+
+  // plus recherché : toutes les forces de police décrochent
+  function standDown() {
+    for (const v of W.vehicles) {
+      if (v.type !== "police") continue;
+      G.Audio.setSiren(v.id, false);
+      v.siren = false;
+      if (v.ai && v.ai.mode !== "cruise") {
+        v.ai = { mode: "cruise", cruise: 100, blockedT: 0, tgtX: null, tgtY: null, dir: null, panicT: 0 };
+      }
+    }
+    for (const p of W.peds) {
+      if (p.kind === "cop" && !p.missionTag) { p.state = "wander"; p.aggro = null; }
+    }
   }
 
   // ---- événements de gameplay ----
   W.onPedKilled = function (p, srcKind) {
     if (srcKind === "player" || srcKind === "playercar") {
+      W.crimeWitnessed(p.x, p.y);
       if (p.kind === "civ") W.addHeat(26, false);
       else if (p.kind === "cop") W.addHeat(40, true);
       else W.addHeat(8, false);
@@ -218,19 +299,24 @@
   };
 
   W.onPlayerRanOver = function (p) {
-    if (p.kind === "civ") W.addHeat(14, false);
+    if (p.kind === "civ") { W.addHeat(14, false); W.crimeWitnessed(p.x, p.y); }
     if (p.kind === "cop") W.addHeat(30, true);
   };
 
   W.onVehicleExploded = function (v) {
-    if (v.type === "police" && W.wanted.level > 0) {
+    if (v.type === "police" && W.wanted.level > 0 && v.lastDamager === "player") {
+      // la signature Chinatown Wars : neutraliser une patrouille SOI-MÊME
+      // fait retomber la pression — pas leurs accidents tout seuls
       W.wanted.heat = Math.max(0, W.wanted.heat - 38);
       refreshWantedLevel();
       if (W.wanted.level === 0) W.wanted.unseenT = 99;
       W.toast("Patrouille neutralisée : la pression retombe !");
       G.Audio.setSiren(v.id, false);
+    } else if (v.type === "police") {
+      G.Audio.setSiren(v.id, false);
     } else if (v.lastDamager === "player") {
       W.addHeat(12, false);
+      W.crimeWitnessed(v.x, v.y);
     }
   };
 
@@ -336,6 +422,12 @@
       return;
     }
 
+    // grilles spatiales de la frame
+    pedGrid.clear();
+    for (const p of W.peds) if (!p.dead) pedGrid.insert(p);
+    vehGrid.clear();
+    for (const v of W.vehicles) vehGrid.insert(v);
+
     E().playerUpdate(W.player, W, dt);
 
     // piétons
@@ -371,6 +463,8 @@
 
     maintainCrowd(dt);
     updateWanted(dt);
+    updateHeli(dt);
+    updateRoadblock(dt);
     G.Missions.update(W, dt);
 
     // annonce de quartier
@@ -404,6 +498,8 @@
     W.wanted.heat = 0;
     refreshWantedLevel();
     W.wanted.bustT = 0;
+    W.wanted.lastSeenT = 99;
+    if (W.heli) W.heli.leaving = true;
     // dissoudre la meute de flics
     for (const p of W.peds) {
       if (p.kind === "cop") { p.state = "wander"; p.aggro = null; }
@@ -435,10 +531,11 @@
     // --- despawn au loin ---
     for (let i = W.vehicles.length - 1; i >= 0; i--) {
       const v = W.vehicles[i];
-      if (!v.ai && v.driverKind === null && !v.parkedSpawn && !v.wreck) { /* volée puis abandonnée : garder un peu */ }
       const d = U.dist(v.x, v.y, pl.x, pl.y);
       if (d > 1500 && v.driverKind !== "player" && !v.missionTag) {
-        if (v.ai || v.wreck) {
+        // trafic, épaves et voitures volées puis abandonnées ; les
+        // voitures garées d'origine restent en place
+        if (v.ai || v.wreck || (!v.parked && v.driverKind === null)) {
           G.Audio.setSiren(v.id, false);
           W.vehicles.splice(i, 1);
         }
@@ -447,7 +544,10 @@
     for (let i = W.peds.length - 1; i >= 0; i--) {
       const p = W.peds[i];
       if (p.noDespawn) continue;
-      if (U.dist(p.x, p.y, pl.x, pl.y) > 1400) W.peds.splice(i, 1);
+      if (U.dist(p.x, p.y, pl.x, pl.y) > 1400) {
+        if (p.pendingBench) p.pendingBench.busy = false;
+        W.peds.splice(i, 1);
+      }
     }
 
     // --- trafic ---
@@ -484,7 +584,50 @@
         W.peds.push(p);
       }
     }
+
+    // --- gangs territoriaux ---
+    const district = G.Map.districtAt(pl.x, pl.y);
+    if (district && (district.key === "docks" || district.key === "lotus")) {
+      const kind = district.key === "docks" ? "shark" : "lotus";
+      const cap = kind === "shark" ? 3 : 2;
+      let n = 0;
+      for (const p of W.peds) if (p.kind === kind && !p.missionTag && !p.staticNpc && !p.dead) n++;
+      if (n < cap) {
+        const spot = G.Map.randomSidewalk(rng, pl.x, pl.y, minD * 0.6, maxD);
+        if (spot && G.Map.districtAt(spot.x, spot.y) &&
+            G.Map.districtAt(spot.x, spot.y).key === district.key) {
+          const p = E().makePed(kind, spot.x, spot.y, rng);
+          if (rng() < 0.3) p.weapon = "bat";
+          W.peds.push(p);
+        }
+      }
+      // les Requins n'oublient pas : après la mission 3, Jin est un ennemi
+      if (kind === "shark" && (G.Missions.state.completed.m3 || W.gangHeatT > 0)) {
+        for (const p of W.peds) {
+          if (p.kind === "shark" && p.state === "wander" && !p.staticNpc &&
+              U.dist2(p.x, p.y, pl.x, pl.y) < 240 * 240 &&
+              G.Map.lineOfSight(p.x, p.y, pl.x, pl.y)) {
+            p.state = "chase";
+            p.aggro = pl;
+          }
+        }
+      }
+    }
+    W.gangHeatT = Math.max(0, (W.gangHeatT || 0) - 0.35);
   }
+
+  // représailles : blesser un Requin ameute ses frères d'armes
+  W.alertGang = function (kind, x, y) {
+    if (kind !== "shark" && kind !== "lotus") return;
+    W.gangHeatT = 30;
+    pedGrid.near(x, y, 420, (p) => {
+      if (p.kind === kind && !p.dead && !p.staticNpc &&
+          (p.state === "wander" || p.state === "flee")) {
+        p.state = "chase";
+        p.aggro = W.player;
+      }
+    });
+  };
 
   /* =========================================================
      POLICE / SYSTÈME DE RECHERCHE
@@ -493,6 +636,7 @@
   function updateWanted(dt) {
     const wd = W.wanted;
     const pl = W.player;
+    wd.lastSeenT += dt;
 
     if (wd.level <= 0) { wd.unseenT = 0; wd.evadeT = 0; wd.bustT = 0; return; }
 
@@ -508,8 +652,15 @@
         if (U.dist2(v.x, v.y, pl.x, pl.y) < 460 * 460 && G.Map.lineOfSight(v.x, v.y, pl.x, pl.y)) { seen = true; break; }
       }
     }
+    // l'œil du ciel : impossible de se cacher tant que l'hélico est là
+    if (!seen && W.heli && !W.heli.dead && U.dist2(W.heli.x, W.heli.y, pl.x, pl.y) < 650 * 650) {
+      seen = true;
+    }
 
-    if (seen) { wd.unseenT = 0; wd.evadeT = 0; }
+    if (seen) {
+      wd.unseenT = 0; wd.evadeT = 0;
+      wd.lastSeenX = pl.x; wd.lastSeenY = pl.y; wd.lastSeenT = 0;
+    }
     else {
       wd.unseenT += dt;
       if (wd.unseenT > 3.5) {
@@ -518,11 +669,7 @@
           wd.evadeT = 0;
           wd.heat = Math.max(0, wd.heat - 35);
           refreshWantedLevel();
-          if (wd.level === 0) {
-            W.toast("Tu as semé la police.");
-            for (const v of W.vehicles) if (v.type === "police") G.Audio.setSiren(v.id, false);
-            for (const p of W.peds) if (p.kind === "cop") { p.state = "wander"; p.aggro = null; }
-          }
+          if (wd.level === 0) W.toast("Tu as semé la police."); // standDown() a déjà tout rangé
         }
       }
     }
@@ -600,6 +747,165 @@
   }
 
   /* =========================================================
+     HÉLICOPTÈRE DE POLICE (4★ et plus)
+     ========================================================= */
+
+  function updateHeli(dt) {
+    const pl = W.player;
+
+    if (!W.heli) {
+      W._heliRespawnT = Math.max(0, W._heliRespawnT - dt);
+      if (W.wanted.level >= 4 && W._heliRespawnT <= 0) {
+        // arrive du large
+        const a = W._rng() * U.TAU;
+        W.heli = {
+          x: pl.x + Math.cos(a) * 1400, y: pl.y + Math.sin(a) * 1400,
+          vx: 0, vy: 0, angle: 0, rotor: 0,
+          hp: 120, dead: false, leaving: false, orbitA: 0
+        };
+        G.Audio.setHeli(true);
+        W.toast("Un hélicoptère de la police est en approche !");
+      }
+      return;
+    }
+
+    const h = W.heli;
+    h.rotor += dt * 28;
+
+    if (W.wanted.level < 4) h.leaving = true;
+    else if (h.leaving) h.leaving = false; // le suspect a regagné 4★ : demi-tour
+
+    let tx, ty, maxSpd;
+    if (h.leaving) {
+      // repart vers le large
+      tx = h.x + (h.x - pl.x) * 2 + 100;
+      ty = h.y + (h.y - pl.y) * 2;
+      maxSpd = 380;
+      if (U.dist(h.x, h.y, pl.x, pl.y) > 1800) {
+        W.heli = null;
+        G.Audio.setHeli(false);
+        return;
+      }
+    } else {
+      // orbite autour du fuyard
+      h.orbitA += dt * 0.55;
+      tx = pl.x + Math.cos(h.orbitA) * 150;
+      ty = pl.y + Math.sin(h.orbitA) * 150;
+      maxSpd = 330;
+    }
+
+    const dx = tx - h.x, dy = ty - h.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const spd = Math.min(maxSpd, d * 2.2);
+    h.vx = U.damp(h.vx, dx / d * spd, 2.2, dt);
+    h.vy = U.damp(h.vy, dy / d * spd, 2.2, dt);
+    h.x += h.vx * dt;
+    h.y += h.vy * dt;
+    if (Math.abs(h.vx) + Math.abs(h.vy) > 40) {
+      h.angle = U.angleDamp(h.angle, Math.atan2(h.vy, h.vx), 3, dt);
+    }
+    G.Audio.heliDistance(U.dist(h.x, h.y, pl.x, pl.y));
+  }
+
+  W.onHeliHit = function (dmg) {
+    const h = W.heli;
+    if (!h || h.dead) return;
+    h.hp -= dmg;
+    if (h.hp <= 0) {
+      // il s'écrase dans un fracas doré
+      G.Audio.play("explosion");
+      G.Camera.shake(0.7);
+      W.addDecal("scorch", h.x, h.y);
+      for (let i = 0; i < 30; i++) W.addParticle("fire", h.x + (W._rng() - 0.5) * 60, h.y + (W._rng() - 0.5) * 40, 1);
+      for (let i = 0; i < 18; i++) W.addParticle("debris", h.x, h.y, 1);
+      W.addParticle("ring", h.x, h.y, 1);
+      for (const p of W.peds) {
+        if (U.dist(h.x, h.y, p.x, p.y) < 90) E().pedTakeDamage(p, W, 70, "explosion", h.x, h.y);
+      }
+      W.heli = null;
+      W._heliRespawnT = 26;
+      G.Audio.setHeli(false);
+      W.addHeat(30, true);
+      W.giveMoney(250);
+      W.toast("Hélicoptère abattu ! Prime de chaos : +250 $");
+    }
+  };
+
+  /* =========================================================
+     BARRAGES ROUTIERS (3★ et plus)
+     ========================================================= */
+
+  function updateRoadblock(dt) {
+    const pl = W.player;
+    const rb = W.roadblock;
+
+    // levée du barrage : dépassé, détruit ou plus recherché
+    if (rb) {
+      const done = W.wanted.level < 3 ||
+        rb.cars.every(c => c.wreck) ||
+        U.dist(pl.x, pl.y, rb.x, rb.y) > 1300;
+      if (done) {
+        for (const c of rb.cars) {
+          if (c.wreck || !c.ai || c.ai.mode !== "roadblock") continue;
+          if (W.wanted.level >= 1) {
+            c.ai = { mode: "chase", blockedT: 0 };
+            c.siren = true;
+            G.Audio.setSiren(c.id, true);
+          } else {
+            c.ai = { mode: "cruise", cruise: 100, blockedT: 0, tgtX: null, tgtY: null, dir: null, panicT: 0 };
+            c.siren = false;
+            G.Audio.setSiren(c.id, false);
+          }
+        }
+        W.roadblock = null;
+      }
+      return;
+    }
+
+    if (W.wanted.level < 3) { W._rbT = 4; return; }
+    W._rbT -= dt;
+    if (W._rbT > 0) return;
+    W._rbT = 2.0; // re-tenter bientôt ; le vrai cooldown ne part qu'après un barrage posé
+
+    // seulement si le fuyard roule vite : on lui coupe la route
+    const v = pl.vehicle;
+    if (!v) return;
+    const sp = Math.hypot(v.vx, v.vy);
+    if (sp < 90) return;
+
+    // point ~600 px devant, aligné sur une route
+    const px = pl.x + (v.vx / sp) * 620, py = pl.y + (v.vy / sp) * 620;
+    const rt = G.Map.nearestRoadTile(px, py, 6);
+    if (rt < 0) return;
+    const T = G.Map.T, MW = G.Map.MW;
+    const bx = (rt % MW + 0.5) * T, by = ((rt / MW | 0) + 0.5) * T;
+    const mask = G.Map.laneMaskAt(rt % MW, (rt / MW) | 0);
+    if (G.Map.isBridge(rt % MW, (rt / MW) | 0)) return;
+    // orientation : voitures en travers, réparties sur la LARGEUR de la chaussée
+    const vertical = (mask & (G.Map.LN | G.Map.LS)) !== 0; // la route file nord-sud
+    const across = vertical ? 0 : Math.PI / 2;             // donc on se met est-ouest
+    const cars = [];
+    for (const off of [-25, 25]) {
+      const c = E().makeVehicle("police", bx + (vertical ? off : 0), by + (vertical ? 0 : off), across, null);
+      c.ai = { mode: "roadblock", blockedT: 0 };
+      c.driverKind = "cop";
+      c.siren = true;
+      G.Audio.setSiren(c.id, true);
+      W.vehicles.push(c);
+      cars.push(c);
+      // un agent posté à côté de chaque voiture
+      const cop = E().makePed("cop", c.x + (vertical ? 0 : -36), c.y + (vertical ? -36 : 0));
+      cop.state = "chase";
+      cop.aggro = pl;
+      cop.weapon = "pistol";
+      W.peds.push(cop);
+    }
+    W.roadblock = { x: bx, y: by, cars };
+    W._rbT = 14;
+    W.toast("Barrage de police droit devant !");
+  }
+
+  /* =========================================================
      RENDU
      ========================================================= */
 
@@ -618,8 +924,9 @@
     const vr = cam.viewRadius(width, height);
     const vx0 = cam.x - vr, vy0 = cam.y - vr, vx1 = cam.x + vr, vy1 = cam.y + vr;
 
-    // 1. sol
+    // 1. sol + reflets d'eau animés
     G.Map.drawGround(ctx, vx0, vy0, vx1, vy1);
+    G.Map.drawWaterOverlay(ctx, vx0, vy0, vx1, vy1, W.time);
 
     // 2. décals & traces de pneus
     for (const d of W.decals) {
@@ -701,8 +1008,28 @@
     // 7. particules
     for (const p of W.particles) E().drawParticle(ctx, p);
 
+    // ombre de l'hélicoptère au sol (sous les bâtiments)
+    if (W.heli && !W.heli.dead) {
+      ctx.fillStyle = "rgba(10,8,20,0.22)";
+      ctx.beginPath();
+      ctx.ellipse(W.heli.x + 16, W.heli.y + 22, 26, 17, 0, 0, U.TAU);
+      ctx.fill();
+    }
+
     // 8. bâtiments & props hauts (occlusion 2.5D)
     G.Map.drawStructures(ctx, cam.x, cam.y, vx0, vy0, vx1, vy1);
+
+    // 9. hélicoptère (au-dessus de tout, avec parallaxe d'altitude)
+    if (W.heli && !W.heli.dead) {
+      const h = W.heli;
+      const e = { x: 0, y: 0 };
+      G.Sprites.elevate(h.x, h.y, 170, cam.x, cam.y, e);
+      ctx.save();
+      ctx.translate(e.x, e.y);
+      ctx.scale(1.15, 1.15);
+      G.Sprites.drawHelicopter(ctx, 0, 0, h.angle, h.rotor);
+      ctx.restore();
+    }
 
     ctx.restore();
 

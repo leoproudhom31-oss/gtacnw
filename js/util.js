@@ -79,6 +79,31 @@ window.G = window.G || {};
     };
   }
 
+  // Grille spatiale (requêtes de voisinage en O(1) au lieu de O(n))
+  function makeGrid(cell) {
+    const map = new Map();
+    return {
+      clear() { map.clear(); },
+      insert(e) {
+        const k = ((e.x / cell) | 0) * 4096 + ((e.y / cell) | 0);
+        let a = map.get(k);
+        if (!a) map.set(k, a = []);
+        a.push(e);
+      },
+      // appelle cb pour chaque entité des cellules couvrant le disque (x,y,r)
+      near(x, y, r, cb) {
+        const c0x = ((x - r) / cell) | 0, c0y = ((y - r) / cell) | 0;
+        const c1x = ((x + r) / cell) | 0, c1y = ((y + r) / cell) | 0;
+        for (let cx = c0x; cx <= c1x; cx++) {
+          for (let cy = c0y; cy <= c1y; cy++) {
+            const a = map.get(cx * 4096 + cy);
+            if (a) for (let i = 0; i < a.length; i++) cb(a[i]);
+          }
+        }
+      }
+    };
+  }
+
   function fmtMoney(n) {
     return n.toLocaleString("fr-FR") + " $";
   }
@@ -93,7 +118,7 @@ window.G = window.G || {};
     TAU, clamp, lerp, damp, dist, dist2,
     wrapAngle, angleDiff, angleLerp, angleDamp,
     makeRng, pick, rrange, rint,
-    rectsOverlap, pointInRect, shade, makeQueue,
+    rectsOverlap, pointInRect, shade, makeQueue, makeGrid,
     fmtMoney, fmtTime
   };
 

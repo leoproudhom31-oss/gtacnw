@@ -70,15 +70,29 @@ volables, mobilier urbain, pickups cachés (santé, argent, armes, armure).
 
 ### Les systèmes de jeu
 - **Véhicules** : 6 types (berline, taxi, sportive, van, pick-up, police),
-  physique arcade avec dérive au frein à main, traces de pneus, dégâts,
-  incendie puis **explosion**, carjacking ;
+  physique arcade **par les quatre coins de la caisse** (couple aux impacts,
+  masses différenciées, tête-à-queue), dérive au frein à main, crissements,
+  feux stop, traces de pneus, dégâts, incendie puis **explosion** avec
+  débris, carjacking ;
 - **Armes** : poings, batte, pistolet 9 mm, PM « Guêpe », fusil à pompe —
   **visée auto verrouillée** (lock-on généreux façon console portable, avec
   anticipation de trajectoire) ou tir libre à la souris ;
-- **Police / étoiles de recherche (5 niveaux)** : témoins, poursuites en
-  voiture-bélier, agents à pied, arrestation (*busted*), hôpital (*wasted*)…
-  et la signature Chinatown Wars : **détruire une voiture de patrouille fait
-  retomber la pression** ;
+- **Une ville qui vit** : les piétons s'assoient sur les bancs, téléphonent,
+  discutent par deux, pressent le pas pour traverser, se jettent au sol ou
+  fuient sous les coups de feu — et les **témoins d'un crime courent alerter
+  la police** (bulle « ! » : à vous de les en dissuader) ; le trafic suit
+  les files, lève le pied aux intersections, klaxonne, contourne les épaves ;
+- **Police / étoiles de recherche (5 niveaux)** : vision réaliste avec
+  **mémoire de la dernière position connue** (les agents ratissent le secteur
+  quand vous cassez la ligne de vue), **pathfinding à pied** autour des
+  bâtiments, tir en rafales avec déplacements latéraux, encerclement au
+  corps à corps, **interception** en voiture, **barrages routiers à 3★**,
+  **hélicoptère à 4★** (impossible de se cacher sous son œil — mais il peut
+  être abattu), arrestation (*busted*), hôpital (*wasted*)… et la signature
+  Chinatown Wars : **neutraliser soi-même une patrouille fait retomber la
+  pression** ;
+- **Gangs territoriaux** : les Requins du Port rôdent sur leurs docks — et
+  n'oublient pas ce que Jin leur a fait ;
 - **GPS** : l'itinéraire est tracé en vert sur la minimap rotative, comme sur
   la carte de l'île ;
 - **HUD complet** : minimap rotative, vie/armure, argent, étoiles, arme,

@@ -100,6 +100,7 @@
     star()      { tone(1046, 0.1, 0.2, "square"); setTimeout(() => tone(784, 0.14, 0.2, "square"), 90); },
     reload()    { noiseBurst(0.06, 0.18, 2200, 900); },
     splash()    { noiseBurst(0.35, 0.3, 700, 150); },
+    screech()   { noiseBurst(0.38, 0.16, 2600, 900); tone(1100, 0.3, 0.05, "sawtooth", 620); },
     jingleWin() {
       const seq = [523, 659, 784, 1046, 784, 1046];
       seq.forEach((f, i) => setTimeout(() => tone(f, 0.22, 0.28, "triangle"), i * 130));
@@ -174,6 +175,41 @@
     s.g.gain.setTargetAtTime(A.muted ? 0 : vol, now(), 0.15);
   }
 
+  /* ---------- rotor d'hélicoptère (boucle) ---------- */
+
+  let heliNodes = null;
+
+  function setHeli(on) {
+    if (!ensure()) return;
+    if (on && !heliNodes) {
+      const src = A.ctx.createBufferSource();
+      src.buffer = A._noiseBuf;
+      src.loop = true;
+      const f = A.ctx.createBiquadFilter();
+      f.type = "lowpass"; f.frequency.value = 240;
+      const g = A.ctx.createGain();
+      g.gain.value = 0.0;
+      // battement des pales : modulation d'amplitude ~13 Hz
+      const lfo = A.ctx.createOscillator();
+      lfo.type = "square"; lfo.frequency.value = 13;
+      const lfoG = A.ctx.createGain(); lfoG.gain.value = 0.5;
+      lfo.connect(lfoG); lfoG.connect(g.gain);
+      src.connect(f); f.connect(g); g.connect(A.master);
+      src.start(); lfo.start();
+      heliNodes = { src, g, lfo };
+    } else if (!on && heliNodes) {
+      const h = heliNodes; heliNodes = null;
+      h.g.gain.setTargetAtTime(0, now(), 0.3);
+      setTimeout(() => { try { h.src.stop(); h.lfo.stop(); } catch (_) {} }, 800);
+    }
+  }
+
+  function heliDistance(d) {
+    if (!heliNodes) return;
+    const vol = G.U.clamp(1 - d / 1600, 0, 1) * 0.13;
+    heliNodes.g.gain.setTargetAtTime(A.muted ? 0 : vol, now(), 0.2);
+  }
+
   /* ---------- musique d'ambiance pentatonique ---------- */
 
   const PENTA = [220, 247.5, 293.33, 330, 392, 440, 495, 586.67];
@@ -195,6 +231,7 @@
     ensure, play, toggleMute,
     startEngine, updateEngine, stopEngine,
     setSiren, sirenDistance, musicTick,
+    setHeli, heliDistance,
     get muted() { return A.muted; }
   };
 

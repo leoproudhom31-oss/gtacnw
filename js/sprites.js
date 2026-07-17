@@ -36,12 +36,14 @@
   /**
    * Dessine un piéton. Le contexte doit déjà être translaté sur sa position.
    * angle : direction du regard. walk : phase de marche (0 si immobile).
-   * pose : "idle" | "walk" | "punch" | "aim" | "down"
+   * pose : "idle" | "walk" | "punch" | "aim" | "down" | "sit" | "phone" | "cower"
    */
   function drawPed(ctx, look, angle, walkPhase, pose, opt) {
     opt = opt || {};
     ctx.save();
     ctx.rotate(angle);
+    if (opt.scale && opt.scale !== 1) ctx.scale(opt.scale, opt.scale);
+    if (pose === "cower") ctx.scale(0.86, 0.86);
 
     if (pose === "down") {
       // au sol
@@ -67,8 +69,14 @@
     // pieds
     ctx.fillStyle = "#20242c";
     ctx.strokeStyle = INK; ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.ellipse(swing * 4, -4, 3.2, 2.4, 0, 0, U.TAU); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(-swing * 4, 4, 3.2, 2.4, 0, 0, U.TAU); ctx.fill();
+    if (pose === "sit") {
+      // jambes repliées devant
+      ctx.beginPath(); ctx.ellipse(6, -3, 3.2, 2.4, 0, 0, U.TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(6, 3, 3.2, 2.4, 0, 0, U.TAU); ctx.fill();
+    } else if (pose !== "cower") {
+      ctx.beginPath(); ctx.ellipse(swing * 4, -4, 3.2, 2.4, 0, 0, U.TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-swing * 4, 4, 3.2, 2.4, 0, 0, U.TAU); ctx.fill();
+    }
 
     // bras
     const armFwd = pose === "aim" ? 8 : (punchT > 0 ? punchT * 10 : 0);
@@ -77,6 +85,14 @@
       // deux bras tendus devant (tenue d'arme)
       ctx.beginPath(); ctx.ellipse(7, -3, 4.5, 2.6, 0.25, 0, U.TAU); ctx.fill(); ctx.stroke();
       ctx.beginPath(); ctx.ellipse(7, 3, 4.5, 2.6, -0.25, 0, U.TAU); ctx.fill(); ctx.stroke();
+    } else if (pose === "cower") {
+      // bras au-dessus de la tête
+      ctx.beginPath(); ctx.ellipse(4.5, -3, 3.4, 2.6, 0.4, 0, U.TAU); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(4.5, 3, 3.4, 2.6, -0.4, 0, U.TAU); ctx.fill(); ctx.stroke();
+    } else if (pose === "phone") {
+      // une main à l'oreille
+      ctx.beginPath(); ctx.ellipse(1, 7, 3.4, 2.6, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(4, -4.5, 3.2, 2.6, 0.5, 0, U.TAU); ctx.fill(); ctx.stroke();
     } else {
       ctx.beginPath(); ctx.ellipse(1 + swing * 3 + armFwd, -7, 3.4, 2.6, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
       ctx.beginPath(); ctx.ellipse(1 - swing * 3 + (punchT > 0.5 ? armFwd : 0), 7, 3.4, 2.6, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
@@ -127,12 +143,12 @@
      ========================================================= */
 
   const VEHICLE_DEFS = {
-    sedan:  { L: 46, W: 22, cabin: [0.28, 0.72], body: null,      maxSpeed: 290, accel: 210, grip: 7.5, turn: 2.6, hp: 100 },
-    taxi:   { L: 46, W: 22, cabin: [0.28, 0.72], body: "#f7c948", maxSpeed: 290, accel: 215, grip: 7.5, turn: 2.7, hp: 100 },
-    sport:  { L: 46, W: 20, cabin: [0.34, 0.66], body: null,      maxSpeed: 380, accel: 300, grip: 9.0, turn: 3.1, hp:  85 },
-    van:    { L: 52, W: 25, cabin: [0.55, 0.95], body: null,      maxSpeed: 240, accel: 160, grip: 6.0, turn: 2.2, hp: 130 },
-    pickup: { L: 50, W: 24, cabin: [0.42, 0.72], body: null,      maxSpeed: 260, accel: 185, grip: 6.8, turn: 2.4, hp: 120 },
-    police: { L: 47, W: 22, cabin: [0.30, 0.70], body: "#e8e8ee", maxSpeed: 330, accel: 260, grip: 8.5, turn: 2.9, hp: 110 }
+    sedan:  { L: 46, W: 22, cabin: [0.28, 0.72], body: null,      maxSpeed: 290, accel: 210, grip: 7.5, turn: 2.6, hp: 100, mass: 1.00 },
+    taxi:   { L: 46, W: 22, cabin: [0.28, 0.72], body: "#f7c948", maxSpeed: 290, accel: 215, grip: 7.5, turn: 2.7, hp: 100, mass: 1.00 },
+    sport:  { L: 46, W: 20, cabin: [0.34, 0.66], body: null,      maxSpeed: 380, accel: 300, grip: 9.0, turn: 3.1, hp:  85, mass: 0.88 },
+    van:    { L: 52, W: 25, cabin: [0.55, 0.95], body: null,      maxSpeed: 240, accel: 160, grip: 6.0, turn: 2.2, hp: 130, mass: 1.45 },
+    pickup: { L: 50, W: 24, cabin: [0.42, 0.72], body: null,      maxSpeed: 260, accel: 185, grip: 6.8, turn: 2.4, hp: 120, mass: 1.30 },
+    police: { L: 47, W: 22, cabin: [0.30, 0.70], body: "#e8e8ee", maxSpeed: 330, accel: 260, grip: 8.5, turn: 2.9, hp: 110, mass: 1.10 }
   };
 
   const CAR_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085",
@@ -549,6 +565,62 @@
   };
 
   /* =========================================================
+     HÉLICOPTÈRE DE POLICE (dessiné en altitude par le moteur)
+     ========================================================= */
+
+  function drawHelicopter(ctx, x, y, angle, rotor) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.strokeStyle = INK;
+    // patins
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = "#20242c";
+    ctx.beginPath();
+    ctx.moveTo(-14, -11); ctx.lineTo(12, -11);
+    ctx.moveTo(-14, 11); ctx.lineTo(12, 11);
+    ctx.stroke();
+    // queue
+    ctx.fillStyle = "#2b4c7e";
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
+    ctx.fillRect(-34, -3, 22, 6);
+    ctx.strokeRect(-34, -3, 22, 6);
+    // rotor de queue
+    ctx.save();
+    ctx.translate(-34, 0);
+    ctx.rotate(rotor * 2.2);
+    ctx.strokeStyle = "#14181f"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(0, 7); ctx.stroke();
+    ctx.restore();
+    // cellule
+    ctx.fillStyle = "#2b4c7e";
+    ctx.strokeStyle = INK; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, 0, 17, 10, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
+    // verrière (avant = +x)
+    ctx.fillStyle = "#9fd8e8";
+    ctx.beginPath(); ctx.ellipse(7, 0, 8, 7, 0, -1.2, 1.2); ctx.fill();
+    // marquage
+    ctx.fillStyle = "#ffc857";
+    ctx.font = "bold 8px sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.save(); ctx.rotate(Math.PI / 2); ctx.fillText("警", 0, 3); ctx.restore();
+    // rotor principal (flou + pales)
+    ctx.fillStyle = "rgba(20,20,30,0.14)";
+    ctx.beginPath(); ctx.arc(0, 0, 30, 0, U.TAU); ctx.fill();
+    ctx.save();
+    ctx.rotate(rotor);
+    ctx.strokeStyle = "rgba(16,16,24,0.85)"; ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-30, 0); ctx.lineTo(30, 0);
+    ctx.moveTo(0, -30); ctx.lineTo(0, 30);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = "#14181f";
+    ctx.beginPath(); ctx.arc(0, 0, 3, 0, U.TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  /* =========================================================
      PORTRAITS DE DIALOGUE (96×96, mis en cache)
      ========================================================= */
 
@@ -690,7 +762,7 @@
     INK, drawPed, pedLook,
     VEHICLE_DEFS, CAR_COLORS, vehicleSprite,
     drawBox, drawBoxPoly, elevate, EXTRUDE,
-    PROPS, portrait, roundRect
+    PROPS, portrait, roundRect, drawHelicopter
   };
 
 })(window.G);
