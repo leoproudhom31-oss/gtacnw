@@ -288,13 +288,21 @@
       return;
     }
     p.searchT -= dt;
-    if (p.searchT <= 0) { p.state = "wander"; return; }
+    if (p.searchT <= 0) { p.state = "wander"; p.idleT = 1; return; }
+    p.searchElapsed = (p.searchElapsed || 0) + dt;
+
     const d = U.dist(p.x, p.y, p.tgtX, p.tgtY);
-    if (d < 18) {
-      p.tgtX = p.searchX + (Math.random() - 0.5) * 260;
-      p.tgtY = p.searchY + (Math.random() - 0.5) * 260;
+    if (d < 22) {
+      // ratissage en spirale : cet agent balaie son propre secteur autour
+      // du dernier point vu, avec un rayon qui grandit avec le temps —
+      // bien plus méthodique qu'un simple point aléatoire répété.
+      const radius = Math.min(300, 55 + p.searchElapsed * 24);
+      const a = p.searchAngle + (Math.random() - 0.5) * 1.1;
+      const tx = p.searchX + Math.cos(a) * radius, ty = p.searchY + Math.sin(a) * radius;
+      if (M().isWalkable(tx, ty)) { p.tgtX = tx; p.tgtY = ty; }
+      else p.searchAngle += 0.9; // secteur bloqué par un mur : pivoter
     }
-    moveToward(p, w, p.tgtX, p.tgtY, 120, dt);
+    followPath(p, w, p.tgtX, p.tgtY, 122, dt);
   }
 
   /* ---------- combat ---------- */
@@ -314,11 +322,16 @@
     if (p.kind === "cop" && !p.missionTag && !hasLOS && w.wanted.lastSeenT < 12) {
       tx = w.wanted.lastSeenX; ty = w.wanted.lastSeenY;
       if (U.dist(p.x, p.y, tx, ty) < 44) {
-        // arrivé sur la dernière position : ratisser le secteur
+        // arrivé sur la dernière position : ratisser le secteur. Chaque
+        // agent couvre son propre angle (nombre d'or → bonne répartition
+        // même avec peu d'unités) et le rayon grandit avec le temps.
         p.state = "search";
         p.searchX = tx; p.searchY = ty;
-        p.searchT = 8;
+        p.searchT = 15;
+        p.searchElapsed = 0;
+        p.searchAngle = (p.id * 2.399963601) % U.TAU;
         p.tgtX = tx; p.tgtY = ty;
+        p.path = null; p.pathT = 0;
         return;
       }
     } else if (d > 900) { p.state = "wander"; return; }
@@ -810,6 +823,7 @@
       hp: def.hp, maxHp: def.hp,
       wreck: false, burnT: 0, explodeT: -1,
       screechT: 0, braking: false,
+      wallT: 0, wallNX: 0, wallNY: 0,
       ai: null,               // { mode, tgtX, tgtY, cruise, blockedT, dir }
       driverKind: null,       // civ | cop | player | null (garé)
       copOut: false,
@@ -884,6 +898,7 @@
     // --- collisions monde : les quatre coins de la caisse ---
     const hl = def.L * 0.44, hw = def.W * 0.48;
     let impact = 0;
+    let wnx = 0, wny = 0, wnCount = 0; // normale moyenne des murs touchés (pour l'IA)
     for (const c of CORNERS) {
       const ox = c[0] * hl, oy = c[1] * hw;
       const wx = v.x + ox * fw.x - oy * fw.y;
@@ -893,15 +908,24 @@
       v.x += push.x; v.y += push.y;
       const pl = Math.sqrt(push.x * push.x + push.y * push.y) || 1;
       const nx = push.x / pl, ny = push.y / pl;
+      wnx += nx; wny += ny; wnCount++;
       const vn = v.vx * nx + v.vy * ny;
       if (vn < 0) {
         impact = Math.max(impact, -vn);
         v.vx -= nx * vn * 1.3;
         v.vy -= ny * vn * 1.3;
-        // couple : un choc au coin fait pivoter la caisse
+        // couple : un choc au coin fait pivoter la caisse (borné plus bas)
         const rx = wx - v.x, ry = wy - v.y;
         v.angVel += (rx * ny - ry * nx) * (-vn) * 0.00030;
       }
+    }
+    // le couple ne doit jamais s'emballer (sinon une caisse coincée dans un
+    // coin se met à tourner sur elle-même indéfiniment)
+    v.angVel = U.clamp(v.angVel, -6, 6);
+    if (wnCount > 0) {
+      v.wallNX = wnx / wnCount; v.wallNY = wny / wnCount; v.wallT = 0.4;
+    } else {
+      v.wallT = Math.max(0, (v.wallT || 0) - dt);
     }
     if (impact > 60) {
       const dmg = (impact - 50) * 0.14;
@@ -1017,6 +1041,48 @@
 
   /* ---------- IA trafic / poursuite ---------- */
 
+  /**
+   * Détecteur de blocage réel + manœuvre de dégagement, partagé par les
+   * modes « cruise » et « chase ». Se base sur le déplacement effectif
+   * (pas sur la vitesse visée) pour ne jamais laisser une voiture tourner
+   * sur elle-même indéfiniment contre un obstacle. Renvoie true tant
+   * qu'une manœuvre de dégagement est en cours (l'appelant doit alors
+   * s'arrêter là pour cette frame : throttle/steer sont déjà posés).
+   */
+  function updateStuckDetector(v, ai, dt) {
+    ai._stuckT = (ai._stuckT || 0) + dt;
+    if (ai._stuckT >= 0.7) {
+      const moved = ai._stuckX != null ? U.dist(v.x, v.y, ai._stuckX, ai._stuckY) : 999;
+      if (moved < 24 && (Math.abs(v.throttle) > 0.05 || v.wallT > 0)) {
+        ai.wedgedT = (ai.wedgedT || 0) + ai._stuckT;
+      } else {
+        ai.wedgedT = 0;
+      }
+      ai._stuckT = 0; ai._stuckX = v.x; ai._stuckY = v.y;
+    }
+    if (ai.escapeT > 0) {
+      ai.escapeT -= dt;
+      v.throttle = -1;
+      if (v.wallT > 0) {
+        // reculer à l'opposé de la normale moyenne des murs touchés
+        const away = Math.atan2(-v.wallNY, -v.wallNX);
+        v.steer = U.clamp(U.angleDiff(v.angle, away) * 2, -1, 1);
+      } else {
+        v.steer = ai.escapeSteer || 1;
+      }
+      if (ai.escapeT <= 0) { ai.wedgedT = 0; ai.tgtX = null; }
+      return true;
+    }
+    if (ai.wedgedT > 1.3) {
+      ai.escapeT = 1.0;
+      ai.escapeSteer = Math.random() < 0.5 ? -1 : 1;
+      ai.wedgedT = 0;
+      v.throttle = -1; v.steer = ai.escapeSteer;
+      return true;
+    }
+    return false;
+  }
+
   function updateVehicleAI(v, w, dt) {
     const ai = v.ai;
     const Mp = M();
@@ -1028,14 +1094,29 @@
     }
 
     if (ai.mode === "chase") {
-      // voiture de police : intercepter la trajectoire du fuyard
+      if (updateStuckDetector(v, ai, dt)) return;
+      // voiture de police : ne connaît la position du fuyard que si la
+      // brigade l'a vu récemment (mémoire radio partagée avec les agents à
+      // pied — voir chaseUpdate). Sans ça, les patrouilles fonçaient tout
+      // droit sur le joueur en toute circonstance : impossible à semer.
       const pl = w.player;
       const src = pl.vehicle || pl;
-      const d = U.dist(v.x, v.y, pl.x, pl.y);
-      const lead = U.clamp(d / 320, 0, 1.1); // anticipation en secondes
-      const tx = pl.x + src.vx * lead, ty = pl.y + src.vy * lead;
+      const seen = w.wanted.lastSeenT < 12;
+      const rx = seen ? pl.x : w.wanted.lastSeenX, ry = seen ? pl.y : w.wanted.lastSeenY;
+      const d = U.dist(v.x, v.y, pl.x, pl.y);      // distance réelle (dépose d'agent)
+      const dTgt = U.dist(v.x, v.y, rx, ry);        // distance à la cible poursuivie
+      const lead = seen ? U.clamp(dTgt / 320, 0, 1.1) : 0;
+      const tx = rx + (seen ? src.vx * lead : 0), ty = ry + (seen ? src.vy * lead : 0);
       steerTowards(v, tx, ty, dt);
-      if (!pl.vehicle && d < 130) {
+
+      if (!seen && dTgt < 60) {
+        // arrivée sur la dernière position sans visuel : reprend une
+        // patrouille normale (sera re-recrutée si on l'aperçoit à nouveau)
+        ai.mode = "cruise"; ai.cruise = 130; ai.tgtX = null; ai.blockedT = 0;
+        v.siren = false; G.Audio.setSiren(v.id, false);
+        return;
+      }
+      if (seen && !pl.vehicle && d < 130) {
         // s'arrêter et déposer un agent
         v.throttle = -1;
         if (vehicleSpeed(v) < 30 && !v.copOut) {
@@ -1046,14 +1127,20 @@
           w.peds.push(cop);
         }
       } else {
-        v.throttle = d > 60 ? 1 : 0.2;
+        v.throttle = dTgt > 60 ? 1 : 0.2;
       }
-      if (d > 90 && vehicleSpeed(v) < 20) {
+      if (dTgt > 90 && vehicleSpeed(v) < 20) {
         ai.blockedT += dt;
         if (ai.blockedT > 1.6) { v.throttle = -0.8; v.steer = Math.random() < 0.5 ? -1 : 1; if (ai.blockedT > 2.6) ai.blockedT = 0; }
       } else ai.blockedT = 0;
       return;
     }
+
+    // détection de blocage réel (voir updateStuckDetector plus bas) : sans
+    // elle, une voiture coincée contre un coin de bâtiment ne se considère
+    // jamais « bloquée » (sa vitesse de croisière visée reste élevée) et
+    // tourne sur elle-même indéfiniment sous le seul couple des chocs.
+    if (updateStuckDetector(v, ai, dt)) return;
 
     // --- croisière sur les voies ---
     if (ai.tgtX == null) pickNextLaneTarget(v, w);

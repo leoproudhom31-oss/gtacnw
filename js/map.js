@@ -264,13 +264,28 @@
                        "PHO 88", "JADE", "WOK", "TATOU", "酒 BAR", "PERLES"];
   const SIGN_COLORS = ["#2ee6a8", "#ff4f9a", "#ffc857", "#7ad7ff"];
 
+  // Bandeaux de finition (corniches) par quartier — touche de couleur
+  // discrète qui casse la monotonie des façades sans jurer avec la DA.
+  const TRIM_DOWNTOWN = ["#9fd8e8", "#ffc857", "#2ee6a8", null, null];
+  const TRIM_RESID = ["#ffc857", "#e58fb1", "#7ad7ff", null, null, null];
+  const TRIM_MARKET = ["#ffc857", "#2ee6a8", null, null];
+  const TRIM_LOTUS = ["#ffc857", "#ff4f9a", "#7ad7ff", "#2ee6a8"];
+
+  // Toits : pondération par catégorie de bâtiment (déterministe via b.rng).
+  const ROOFS_TOWER = ["tier2", "tier2", "helipad", "tank", "antenna", "dish", "garden", "vents"];
+  const ROOFS_LOW = ["tank", "antenna", "vents", "garden", "none", "none"];
+  const ROOFS_LOTUS = ["tank", "antenna", "laundry", "laundry", "none"];
+
+  function pickRoof(rng, pool) { return U.pick(rng, pool); }
+
   function downtownBlock(b) {
     const rng = b.rng;
-    const colors = ["#5d6d7e", "#46586a", "#3f4f63", "#6a7a8c", "#54626f", "#4a5a70"];
-    // 2 à 3 tours par bloc
-    const n = U.rint(rng, 2, 3);
+    const colors = ["#5d6d7e", "#46586a", "#3f4f63", "#6a7a8c", "#54626f", "#4a5a70",
+                     "#3d5a6e", "#5a4f6e", "#4f6659", "#6e5a4a"];
+    // 3 à 4 tours par bloc : une skyline plus dense et plus variée
+    const n = U.rint(rng, 3, 4);
     for (let k = 0; k < n; k++) {
-      const tw = U.rint(rng, 4, 6), th = U.rint(rng, 4, 6);
+      const tw = U.rint(rng, 3, 6), th = U.rint(rng, 3, 6);
       const tx = U.rint(rng, b.x0, Math.max(b.x0, b.x1 - tw + 1));
       const ty = U.rint(rng, b.y0, Math.max(b.y0, b.y1 - th + 1));
       if (!canPlace(tx, ty, tw, th)) continue;
@@ -280,7 +295,8 @@
         height: U.rint(rng, 95, 150),
         wall, roof: U.shade(wall, -0.28),
         windows: true, floors: U.rint(rng, 6, 10),
-        helipad: rng() < 0.3
+        trim: U.pick(rng, TRIM_DOWNTOWN),
+        roofType: pickRoof(rng, ROOFS_TOWER)
       });
     }
     // le reste du bloc devient parvis
@@ -316,7 +332,8 @@
 
   function residentialBlock(b) {
     const rng = b.rng;
-    const colors = ["#b96a4b", "#a3593d", "#c9825e", "#8f5a3a", "#b5836a", "#9c6f50", "#c98a6a"];
+    const colors = ["#b96a4b", "#a3593d", "#c9825e", "#8f5a3a", "#b5836a", "#9c6f50", "#c98a6a",
+                     "#7a8a6a", "#8a7a9c", "#c9a06a", "#6a8a9c"];
     // rangées de maisons en haut et en bas du bloc
     for (const edge of [0, 1]) {
       let tx = b.x0;
@@ -330,7 +347,10 @@
             tx, ty, tw, th: 3,
             height: U.rint(rng, 36, 54),
             wall, roof: U.shade(wall, -0.3),
-            windows: false, floors: 2
+            windows: rng() < 0.35, floors: 2,
+            trim: U.pick(rng, TRIM_RESID),
+            roofType: pickRoof(rng, ROOFS_LOW),
+            balconies: rng() < 0.5 ? [0.58] : null
           });
         }
         tx += tw + (rng() < 0.35 ? 1 : 0);
@@ -346,7 +366,7 @@
 
   function marketBlock(b) {
     const rng = b.rng;
-    const colors = ["#7f8c8d", "#95a5a6", "#8c7a5f", "#6d7a8c", "#a08c6a"];
+    const colors = ["#7f8c8d", "#95a5a6", "#8c7a5f", "#6d7a8c", "#a08c6a", "#7a6a8c", "#8c6a6a"];
     const signs = ["OUTILS", "MOTEL", "BANQUE", "LAVERIE", "PIÈCES", "TABAC"];
     const n = U.rint(rng, 3, 4);
     for (let k = 0; k < n; k++) {
@@ -360,6 +380,8 @@
         height: U.rint(rng, 44, 66),
         wall, roof: U.shade(wall, -0.28),
         windows: rng() < 0.4, floors: U.rint(rng, 2, 4),
+        trim: U.pick(rng, TRIM_MARKET),
+        roofType: pickRoof(rng, ROOFS_LOW),
         sign: rng() < 0.4 ? { text: U.pick(rng, signs), color: U.pick(rng, SIGN_COLORS) } : null
       });
     }
@@ -367,7 +389,8 @@
 
   function lotusBlock(b) {
     const rng = b.rng;
-    const colors = ["#c0392b", "#d35400", "#c9a227", "#1e8449", "#19b3c4", "#a93226", "#b9770e"];
+    const colors = ["#c0392b", "#d35400", "#c9a227", "#1e8449", "#19b3c4", "#a93226", "#b9770e",
+                     "#8e44ad", "#2874a6", "#a04000"];
     // shophouses en périmètre
     const edges = [
       { x: b.x0, y: b.y0, dx: 1, dy: 0, len: b.x1 - b.x0 + 1, d: 3 },
@@ -381,13 +404,18 @@
         const tx = e.x + e.dx * o, ty = e.y;
         if (rng() < 0.86 && canPlace(tx, ty, tw, 3)) {
           const wall = U.pick(rng, colors);
+          const roofType = pickRoof(rng, ROOFS_LOTUS);
           addBuilding({
             tx, ty, tw, th: 3,
             height: U.rint(rng, 36, 52),
             wall, roof: rng() < 0.5 ? "#7a1f14" : U.shade(wall, -0.3),
             windows: false, floors: U.rint(rng, 2, 3),
+            trim: U.pick(rng, TRIM_LOTUS),
+            roofType,
             sign: rng() < 0.55 ? { text: U.pick(rng, SIGNS_LOTUS), color: U.pick(rng, SIGN_COLORS) } : null,
-            awning: rng() < 0.6 ? U.pick(rng, ["#c0392b", "#1e8449", "#ffc857"]) : null
+            awning: rng() < 0.6 ? U.pick(rng, ["#c0392b", "#1e8449", "#ffc857"]) : null,
+            balconies: rng() < 0.45 ? [0.62] : null,
+            laundry: roofType !== "laundry" && rng() < 0.3
           });
         }
         o += tw + (rng() < 0.3 ? 1 : 0);
@@ -432,7 +460,7 @@
     for (let y = b.y0 - 1; y <= b.y1 + 1; y++)
       for (let x = b.x0 - 1; x <= b.x1 + 1; x++)
         if (get(x, y) === GRASS) set(x, y, DOCK);
-    const colors = ["#8c6d3f", "#6d7a8c", "#7a5230", "#5f6d5f", "#8c5a4a"];
+    const colors = ["#8c6d3f", "#6d7a8c", "#7a5230", "#5f6d5f", "#8c5a4a", "#6d5a3f"];
     const n = U.rint(rng, 1, 2);
     for (let k = 0; k < n; k++) {
       const tw = U.rint(rng, 5, 8), th = U.rint(rng, 3, 4);
@@ -444,7 +472,8 @@
         tx, ty, tw, th,
         height: U.rint(rng, 42, 58),
         wall, roof: U.shade(wall, -0.22),
-        windows: false, floors: 1, warehouse: true
+        windows: false, floors: 1, warehouse: true,
+        roofType: rng() < 0.6 ? "vents" : (rng() < 0.5 ? "tank" : "none")
       });
     }
     // conteneurs épars
@@ -578,6 +607,7 @@
       tx: 26, ty: 66, tw: 6, th: 4,
       height: 52, wall: "#6d7a8c", roof: "#54626f",
       windows: false, floors: 2, garage: true,
+      trim: "#2ee6a8", roofType: "vents",
       sign: { text: "GARAGE LONG", color: "#2ee6a8" }
     });
     POI.garage = { x: b.cx, y: 70.9 * T };
@@ -587,6 +617,7 @@
       tx: 12, ty: 38, tw: 6, th: 4,
       height: 74, wall: "#2b4c7e", roof: "#22304a",
       windows: true, floors: 4,
+      trim: "#7ad7ff", roofType: "antenna",
       sign: { text: "POLICE 警察", color: "#7ad7ff" }
     });
     POI.police = { x: b.cx, y: 42.9 * T };
@@ -596,6 +627,7 @@
       tx: 96, ty: 24, tw: 6, th: 5,
       height: 80, wall: "#e8e4d8", roof: "#cfc6b3",
       windows: true, floors: 5, hospital: true,
+      roofType: "vents",
       sign: { text: "HÔPITAL +", color: "#ff5340" }
     });
     POI.hospital = { x: b.cx, y: 29.9 * T };
@@ -605,6 +637,7 @@
       tx: 40, ty: 100, tw: 9, th: 5,
       height: 56, wall: "#5f4a3f", roof: "#4a3a30",
       windows: false, floors: 1, warehouse: true, hideout: true,
+      roofType: "tank",
       sign: { text: "PÊCHERIE WANG", color: "#19b3c4" }
     });
     POI.hideout = { x: b.cx, y: 99.2 * T };
@@ -1083,7 +1116,7 @@
   }
 
   function drawBuilding(ctx, b, camX, camY) {
-    const opt = { windows: b.windows, floors: b.floors };
+    const opt = { windows: b.windows, floors: b.floors, trim: b.trim };
     const tops = S.drawBox(ctx, b.x, b.y, b.w, b.h, b.height, camX, camY, b.wall, b.roof, opt);
 
     // — décorations de toit (les sommets `tops` sont partagés : utiliser tout de suite)
@@ -1101,14 +1134,6 @@
       ctx.fillRect(tcx - s / 2, tcy - s / 6, s, s / 3);
       ctx.fillRect(tcx - s / 6, tcy - s / 2, s / 3, s);
     }
-    if (b.helipad) {
-      ctx.strokeStyle = "#ffc857"; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.arc(tcx, tcy, 20 * sc, 0, U.TAU); ctx.stroke();
-      ctx.font = "bold " + Math.max(10, 22 * sc) + "px sans-serif";
-      ctx.fillStyle = "#ffc857";
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("H", tcx, tcy + 1);
-    }
     if (b.warehouse) {
       // lignes de toit ondulé
       ctx.strokeStyle = "rgba(20,16,32,0.25)"; ctx.lineWidth = 1.5;
@@ -1121,16 +1146,11 @@
       }
       ctx.stroke();
     }
-    if (!b.warehouse && !b.hospital && b.height > 80 && tileHash(b.tx, b.ty) > 0.4) {
-      // clim / cabanon d'accès
-      ctx.fillStyle = U.shade(b.roof, -0.25);
-      ctx.strokeStyle = S.INK; ctx.lineWidth = 1.2;
-      const s = 16 * sc;
-      ctx.fillRect(tcx - s + 4, tcy - s / 2, s, s * 0.8);
-      ctx.strokeRect(tcx - s + 4, tcy - s / 2, s, s * 0.8);
-      ctx.fillRect(tcx + 4, tcy - s / 4, s * 0.7, s * 0.6);
-      ctx.strokeRect(tcx + 4, tcy - s / 4, s * 0.7, s * 0.6);
-    }
+
+    drawRoofDetail(ctx, b, tcx, tcy, sc, camX, camY);
+    if (b.balconies) drawBalconies(ctx, b, camX, camY, b.balconies);
+    if (b.laundry) drawRoofLaundry(ctx, b, camX, camY);
+
     if (b.sign) {
       // enseigne sur l'avant du toit (côté sud)
       const sx = (tops[3].x + tops[2].x) / 2, sy = (tops[3].y + tops[2].y) / 2;
@@ -1152,6 +1172,140 @@
       ctx.strokeStyle = S.INK; ctx.lineWidth = 1.2;
       ctx.fillRect(b.x + 4, b.y + b.h - 2, b.w - 8, 8);
       ctx.strokeRect(b.x + 4, b.y + b.h - 2, b.w - 8, 8);
+    }
+  }
+
+  /**
+   * Détails de toiture, choisis à la génération (b.roofType) pour varier
+   * la silhouette des toits d'un bâtiment à l'autre : citerne, antenne,
+   * parabole, jardin, tour à retrait, climatiseurs, ou hélisurface.
+   */
+  function drawRoofDetail(ctx, b, tcx, tcy, sc, camX, camY) {
+    const rt = b.roofType;
+    if (!rt || rt === "none") return;
+
+    if (rt === "helipad") {
+      ctx.strokeStyle = "#ffc857"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(tcx, tcy, 20 * sc, 0, U.TAU); ctx.stroke();
+      ctx.font = "bold " + Math.max(10, 22 * sc) + "px sans-serif";
+      ctx.fillStyle = "#ffc857";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("H", tcx, tcy + 1);
+      return;
+    }
+    if (rt === "vents") {
+      ctx.fillStyle = U.shade(b.roof, -0.25);
+      ctx.strokeStyle = S.INK; ctx.lineWidth = 1.2;
+      const s = 16 * sc;
+      ctx.fillRect(tcx - s + 4, tcy - s / 2, s, s * 0.8);
+      ctx.strokeRect(tcx - s + 4, tcy - s / 2, s, s * 0.8);
+      ctx.fillRect(tcx + 4, tcy - s / 4, s * 0.7, s * 0.6);
+      ctx.strokeRect(tcx + 4, tcy - s / 4, s * 0.7, s * 0.6);
+      return;
+    }
+
+    // décorations en volume : positionnées en coordonnées MONDE (b.cx/b.cy)
+    // puis élevées, pour un vrai petit relief sur le toit plutôt qu'un
+    // simple décalque plat.
+    const jx = (tileHash(b.tx + 3, b.ty + 11) - 0.5) * Math.max(0, b.w - 30);
+    const jy = (tileHash(b.tx + 19, b.ty + 7) - 0.5) * Math.max(0, b.h - 30);
+    const cx = b.cx + jx, cy = b.cy + jy;
+    const top = { x: 0, y: 0 };
+
+    switch (rt) {
+      case "tier2": {
+        // tour à retrait : second volume plus étroit, décalé du centre
+        const extra = 24 + tileHash(b.tx, b.ty + 3) * 26;
+        S.drawBox(ctx, b.x + b.w * 0.22, b.y + b.h * 0.22, b.w * 0.56, b.h * 0.56,
+                  b.height + extra, camX, camY, U.shade(b.wall, 0.06), U.shade(b.roof, 0.1),
+                  { windows: b.windows, floors: Math.max(2, (b.floors || 4) - 3) });
+        break;
+      }
+      case "tank": {
+        const s = 15 + tileHash(b.tx, b.ty + 3) * 7;
+        S.drawBox(ctx, cx - s / 2, cy - s / 2, s, s, b.height + s * 1.4, camX, camY, "#9c8064", "#c2a67e");
+        break;
+      }
+      case "antenna": {
+        S.drawBox(ctx, cx - 2, cy - 2, 4, 4, b.height + 44, camX, camY, "#2a2f38", "#3a4048");
+        S.elevate(cx, cy, b.height + 44, camX, camY, top);
+        ctx.strokeStyle = "#2a2f38"; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(top.x - 9, top.y); ctx.lineTo(top.x + 9, top.y); ctx.stroke();
+        ctx.fillStyle = "#ff5340";
+        ctx.beginPath(); ctx.arc(top.x, top.y, 2, 0, U.TAU); ctx.fill();
+        break;
+      }
+      case "dish": {
+        S.drawBox(ctx, cx - 3, cy - 3, 6, 6, b.height + 16, camX, camY, "#2a2f38", "#3a4048");
+        S.elevate(cx, cy, b.height + 16, camX, camY, top);
+        ctx.fillStyle = "#c9d4d8"; ctx.strokeStyle = S.INK; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(top.x + 5, top.y - 2, 7, 5, -0.4, 0, U.TAU); ctx.fill(); ctx.stroke();
+        break;
+      }
+      case "garden": {
+        const gw = Math.min(b.w - 16, 30), gh = Math.min(b.h - 16, 22);
+        S.drawBox(ctx, cx - gw / 2, cy - gh / 2, gw, gh, b.height + 5, camX, camY, "#3f5a3a", "#4a6b44");
+        S.elevate(cx - gw * 0.2, cy - gh * 0.1, b.height + 9, camX, camY, top);
+        ctx.fillStyle = "#5cb377";
+        ctx.beginPath(); ctx.arc(top.x, top.y, 5, 0, U.TAU); ctx.fill();
+        S.elevate(cx + gw * 0.22, cy + gh * 0.15, b.height + 9, camX, camY, top);
+        ctx.beginPath(); ctx.arc(top.x, top.y, 4, 0, U.TAU); ctx.fill();
+        break;
+      }
+      case "laundry":
+        drawRoofLaundry(ctx, b, camX, camY);
+        break;
+    }
+  }
+
+  const LAUNDRY_COLORS = ["#f5ead6", "#ff8fb0", "#7ad7ff", "#ffc857", "#a9dfbf"];
+
+  /** Linge qui sèche sur le toit ou le balcon — détail vivant du Lotus. */
+  function drawRoofLaundry(ctx, b, camX, camY) {
+    const rng = U.makeRng((b.tx * 733 + b.ty * 197) >>> 0);
+    const y = b.y + b.h * U.rrange(rng, 0.3, 0.7);
+    const p0 = { x: 0, y: 0 }, p1 = { x: 0, y: 0 };
+    S.elevate(b.x + b.w * 0.15, y, b.height + 6, camX, camY, p0);
+    S.elevate(b.x + b.w * 0.85, y, b.height + 6, camX, camY, p1);
+    ctx.strokeStyle = "rgba(20,16,32,0.5)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+    const n = 3 + (rng() * 3 | 0);
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n;
+      const x = p0.x + (p1.x - p0.x) * t, yy = p0.y + (p1.y - p0.y) * t;
+      ctx.fillStyle = U.pick(rng, LAUNDRY_COLORS);
+      ctx.beginPath();
+      ctx.moveTo(x - 4, yy);
+      ctx.lineTo(x + 4, yy);
+      ctx.lineTo(x + 3, yy + 7);
+      ctx.lineTo(x - 3, yy + 7);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  /** Petits balcons avec garde-corps sur la façade sud (résidentiel / Lotus). */
+  function drawBalconies(ctx, b, camX, camY, fracs) {
+    for (const frac of fracs) {
+      const h = b.height * frac;
+      const eL = { x: 0, y: 0 }, eR = { x: 0, y: 0 };
+      S.elevate(b.x, b.y + b.h, h, camX, camY, eL);
+      S.elevate(b.x + b.w, b.y + b.h, h, camX, camY, eR);
+      ctx.fillStyle = "rgba(20,16,32,0.55)";
+      ctx.strokeStyle = S.INK; ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(eL.x, eL.y + 4); ctx.lineTo(eR.x, eR.y + 4);
+      ctx.lineTo(eR.x, eR.y - 2); ctx.lineTo(eL.x, eL.y - 2);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      const n = Math.max(3, Math.round(U.dist(eL.x, eL.y, eR.x, eR.y) / 13));
+      ctx.strokeStyle = "rgba(20,16,32,0.75)"; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const x = eL.x + (eR.x - eL.x) * t, y = eL.y + (eR.y - eL.y) * t;
+        ctx.moveTo(x, y - 2); ctx.lineTo(x, y - 7);
+      }
+      ctx.stroke();
     }
   }
 

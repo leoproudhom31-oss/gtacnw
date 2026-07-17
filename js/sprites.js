@@ -11,6 +11,13 @@
   const U = G.U;
   const INK = "#1a1424";
 
+  // hash déterministe 2D (style bruit GLSL) : sert à varier fenêtres et
+  // détails de toit sans RNG à état, uniquement à partir de coordonnées.
+  function h2(x, y) {
+    const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  }
+
   /* =========================================================
      PIÉTONS — dessinés en direct (peu de formes), face à +x
      ========================================================= */
@@ -310,6 +317,20 @@
       ctx.lineTo(tb.x, tb.y); ctx.lineTo(ta.x, ta.y);
       ctx.closePath();
       ctx.fill();
+
+      // bandeau de finition (corniche colorée près du toit)
+      if (opt.trim) {
+        const r0 = 0.83, r1 = 0.92;
+        ctx.fillStyle = opt.trim;
+        ctx.beginPath();
+        ctx.moveTo(a.x + (ta.x - a.x) * r0, a.y + (ta.y - a.y) * r0);
+        ctx.lineTo(b.x + (tb.x - b.x) * r0, b.y + (tb.y - b.y) * r0);
+        ctx.lineTo(b.x + (tb.x - b.x) * r1, b.y + (tb.y - b.y) * r1);
+        ctx.lineTo(a.x + (ta.x - a.x) * r1, a.y + (ta.y - a.y) * r1);
+        ctx.closePath();
+        ctx.fill();
+      }
+
       // étages : lignes interpolées sur la face
       if (opt.floors > 1) {
         ctx.strokeStyle = "rgba(18,14,28,0.28)";
@@ -322,21 +343,31 @@
         }
         ctx.stroke();
       }
+
+      // fenêtres : véritable grille étage × colonne, allumées/éteintes
+      // au hasard (déterministe) pour casser la monotonie des façades
       if (opt.windows) {
-        ctx.fillStyle = "rgba(35,60,80,0.55)";
-        const cols = Math.max(2, Math.round(U.dist(a.x, a.y, b.x, b.y) / 26));
-        for (let ci = 0; ci < cols; ci++) {
-          const t0 = (ci + 0.25) / cols, t1 = (ci + 0.75) / cols;
-          const bax = a.x + (b.x - a.x) * t0, bay = a.y + (b.y - a.y) * t0;
-          const bbx = a.x + (b.x - a.x) * t1, bby = a.y + (b.y - a.y) * t1;
-          const tax = ta.x + (tb.x - ta.x) * t0, tay = ta.y + (tb.y - ta.y) * t0;
-          const tbx = ta.x + (tb.x - ta.x) * t1, tby = ta.y + (tb.y - ta.y) * t1;
-          ctx.beginPath();
-          ctx.moveTo(bax + (tax - bax) * 0.18, bay + (tay - bay) * 0.18);
-          ctx.lineTo(bbx + (tbx - bbx) * 0.18, bby + (tby - bby) * 0.18);
-          ctx.lineTo(tbx - (tbx - bbx) * 0.10, tby - (tby - bby) * 0.10);
-          ctx.lineTo(tax - (tax - bax) * 0.10, tay - (tay - bay) * 0.10);
-          ctx.closePath(); ctx.fill();
+        const rows = Math.max(1, opt.floors || 3);
+        const cols = Math.max(2, Math.round(U.dist(a.x, a.y, b.x, b.y) / 24));
+        ctx.strokeStyle = "rgba(15,12,20,0.35)"; ctx.lineWidth = 1;
+        for (let ri = 0; ri < rows; ri++) {
+          const r0 = ri / rows + 0.10 / rows, r1 = (ri + 1) / rows - 0.28 / rows;
+          const blx = a.x + (ta.x - a.x) * r0, bly = a.y + (ta.y - a.y) * r0;
+          const brx = b.x + (tb.x - b.x) * r0, bry = b.y + (tb.y - b.y) * r0;
+          const tlx = a.x + (ta.x - a.x) * r1, tly = a.y + (ta.y - a.y) * r1;
+          const trx = b.x + (tb.x - b.x) * r1, try_ = b.y + (tb.y - b.y) * r1;
+          for (let ci = 0; ci < cols; ci++) {
+            const c0 = (ci + 0.22) / cols, c1 = (ci + 0.78) / cols;
+            const p0x = blx + (brx - blx) * c0, p0y = bly + (bry - bly) * c0;
+            const p1x = blx + (brx - blx) * c1, p1y = bly + (bry - bly) * c1;
+            const p2x = tlx + (trx - tlx) * c1, p2y = tly + (try_ - tly) * c1;
+            const p3x = tlx + (trx - tlx) * c0, p3y = tly + (try_ - tly) * c0;
+            const lit = h2(a.x * 0.7 + ci * 13.7, a.y * 0.7 + ri * 29.3 + i * 5.1) > 0.8;
+            ctx.fillStyle = lit ? "rgba(255,208,120,0.8)" : "rgba(35,58,78,0.58)";
+            ctx.beginPath();
+            ctx.moveTo(p0x, p0y); ctx.lineTo(p1x, p1y); ctx.lineTo(p2x, p2y); ctx.lineTo(p3x, p3y);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+          }
         }
       }
       ctx.strokeStyle = INK; ctx.lineWidth = 1.4;
