@@ -113,35 +113,118 @@
 
   function play(name) { if (ensure() && SFX[name]) SFX[name](); }
 
-  /* ---------- moteur du joueur (boucle continue) ---------- */
+  /* ---------- moteur du joueur (boucle continue, UN SON PAR TYPE) ---------- */
 
-  function startEngine() {
-    if (!ensure() || A.engine) return;
+  // Chaque type de véhicule a sa voix : fréquences de base/plafond, filtre,
+  // forme d'onde, oscillateur secondaire (désaccordé) et modulation
+  // d'amplitude (diesel qui tousse, moto qui crache, hors-bord qui toussote).
+  const ENGINE_PROFILES = {
+    sedan:  { wave: "sawtooth", f0: 50, f1: 240, filt0: 280, filt1: 1180, vol0: 0.10, vol1: 0.15 },
+    taxi:   { wave: "sawtooth", f0: 54, f1: 260, filt0: 300, filt1: 1250, vol0: 0.10, vol1: 0.15 },
+    police: { wave: "sawtooth", f0: 58, f1: 280, filt0: 320, filt1: 1400, vol0: 0.10, vol1: 0.16 },
+    sport:  { wave: "sawtooth", f0: 74, f1: 360, filt0: 420, filt1: 2300, vol0: 0.11, vol1: 0.18,
+              osc2: 1.502, wave2: "square" },                       // hurlement à haut régime
+    van:    { wave: "sawtooth", f0: 38, f1: 140, filt0: 190, filt1: 620, vol0: 0.13, vol1: 0.18,
+              am: 27, amDepth: 0.4 },                               // diesel qui claque
+    pickup: { wave: "sawtooth", f0: 44, f1: 170, filt0: 230, filt1: 760, vol0: 0.12, vol1: 0.17,
+              am: 21, amDepth: 0.3 },
+    bike:   { wave: "square",   f0: 88, f1: 520, filt0: 640, filt1: 2600, vol0: 0.085, vol1: 0.145,
+              am: 48, amDepth: 0.35, amRise: 40 },                  // pétarade aiguë
+    boat:   { wave: "sine",     f0: 36, f1: 110, filt0: 260, filt1: 520, vol0: 0.12, vol1: 0.18,
+              am: 7, amDepth: 0.55, amRise: 14, noise: true },      // hors-bord : putt-putt
+    skiff:  { wave: "sine",     f0: 30, f1: 74,  filt0: 220, filt1: 400, vol0: 0.12, vol1: 0.16,
+              am: 5, amDepth: 0.6, amRise: 9, noise: true }
+  };
+
+  function startEngine(type) {
+    if (!ensure()) return;
+    if (A.engine) stopEngine();
+    const p = ENGINE_PROFILES[type] || ENGINE_PROFILES.sedan;
     const o = A.ctx.createOscillator();
-    o.type = "sawtooth";
-    o.frequency.value = 55;
+    o.type = p.wave;
+    o.frequency.value = p.f0;
     const f = A.ctx.createBiquadFilter();
-    f.type = "lowpass"; f.frequency.value = 320; f.Q.value = 2;
+    f.type = "lowpass"; f.frequency.value = p.filt0; f.Q.value = 2;
     const g = A.ctx.createGain();
     g.gain.value = 0.0;
     o.connect(f); f.connect(g); g.connect(A.master);
     o.start();
-    A.engine = { o, f, g };
+    const e = { o, f, g, p };
+    // oscillateur secondaire (harmonique désaccordée : moteur plus riche)
+    if (p.osc2) {
+      const o2 = A.ctx.createOscillator();
+      o2.type = p.wave2 || p.wave;
+      o2.frequency.value = p.f0 * p.osc2;
+      const g2 = A.ctx.createGain(); g2.gain.value = 0.45;
+      o2.connect(g2); g2.connect(f);
+      o2.start();
+      e.o2 = o2;
+    }
+    // modulation d'amplitude (ralenti qui tousse)
+    if (p.am) {
+      const lfo = A.ctx.createOscillator();
+      lfo.type = "square"; lfo.frequency.value = p.am;
+      const lfoG = A.ctx.createGain(); lfoG.gain.value = p.vol0 * p.amDepth;
+      lfo.connect(lfoG); lfoG.connect(g.gain);
+      lfo.start();
+      e.lfo = lfo;
+    }
+    // souffle (bateaux : clapot du moteur dans l'eau)
+    if (p.noise) {
+      const src = A.ctx.createBufferSource();
+      src.buffer = A._noiseBuf; src.loop = true;
+      const nf = A.ctx.createBiquadFilter();
+      nf.type = "lowpass"; nf.frequency.value = 420;
+      const ng = A.ctx.createGain(); ng.gain.value = 0.035;
+      src.connect(nf); nf.connect(ng); ng.connect(A.master);
+      src.start();
+      e.noiseSrc = src; e.noiseG = ng;
+    }
+    A.engine = e;
   }
 
   function updateEngine(speedRatio) {
     if (!A.engine) return;
-    const t = now();
-    A.engine.o.frequency.setTargetAtTime(50 + 190 * speedRatio, t, 0.08);
-    A.engine.f.frequency.setTargetAtTime(280 + 900 * speedRatio, t, 0.1);
-    A.engine.g.gain.setTargetAtTime(A.muted ? 0 : 0.10 + 0.05 * speedRatio, t, 0.1);
+    const t = now(), e = A.engine, p = e.p;
+    const r = G.U.clamp(speedRatio, 0, 1);
+    e.o.frequency.setTargetAtTime(p.f0 + (p.f1 - p.f0) * r, t, 0.08);
+    if (e.o2) e.o2.frequency.setTargetAtTime((p.f0 + (p.f1 - p.f0) * r) * p.osc2, t, 0.08);
+    e.f.frequency.setTargetAtTime(p.filt0 + (p.filt1 - p.filt0) * r, t, 0.1);
+    e.g.gain.setTargetAtTime(A.muted ? 0 : p.vol0 + (p.vol1 - p.vol0) * r, t, 0.1);
+    if (e.lfo && p.amRise) e.lfo.frequency.setTargetAtTime(p.am + p.amRise * r, t, 0.15);
+    if (e.noiseG) e.noiseG.gain.setTargetAtTime(A.muted ? 0 : 0.02 + 0.045 * r, t, 0.12);
   }
 
   function stopEngine() {
     if (!A.engine) return;
     const e = A.engine; A.engine = null;
     e.g.gain.setTargetAtTime(0, now(), 0.08);
-    setTimeout(() => { try { e.o.stop(); } catch (_) {} }, 400);
+    if (e.noiseG) e.noiseG.gain.setTargetAtTime(0, now(), 0.08);
+    setTimeout(() => {
+      try { e.o.stop(); } catch (_) {}
+      try { if (e.o2) e.o2.stop(); } catch (_) {}
+      try { if (e.lfo) e.lfo.stop(); } catch (_) {}
+      try { if (e.noiseSrc) e.noiseSrc.stop(); } catch (_) {}
+    }, 400);
+  }
+
+  /* ---------- klaxons par type ---------- */
+
+  const HORNS = {
+    sedan:  () => { tone(392, 0.35, 0.28, "square"); tone(330, 0.35, 0.28, "square"); },
+    taxi:   () => { tone(440, 0.28, 0.28, "square"); tone(370, 0.28, 0.26, "square"); },
+    police: () => { tone(415, 0.3, 0.28, "square"); tone(349, 0.3, 0.26, "square"); },
+    sport:  () => { tone(523, 0.26, 0.27, "square"); tone(415, 0.26, 0.25, "square"); },
+    van:    () => { tone(233, 0.55, 0.32, "square"); tone(196, 0.55, 0.3, "square"); },
+    pickup: () => { tone(294, 0.42, 0.3, "square"); tone(247, 0.42, 0.28, "square"); },
+    bike:   () => { tone(880, 0.14, 0.26, "square"); },
+    boat:   () => { tone(147, 0.9, 0.34, "sawtooth"); tone(110, 0.9, 0.26, "triangle"); }, // corne de brume
+    skiff:  () => { tone(165, 0.7, 0.3, "sawtooth"); }
+  };
+
+  function horn(type) {
+    if (!ensure()) return;
+    (HORNS[type] || HORNS.sedan)();
   }
 
   /* ---------- sirène de police ---------- */
@@ -228,7 +311,7 @@
   }
 
   G.Audio = {
-    ensure, play, toggleMute,
+    ensure, play, toggleMute, horn,
     startEngine, updateEngine, stopEngine,
     setSiren, sirenDistance, musicTick,
     setHeli, heliDistance,

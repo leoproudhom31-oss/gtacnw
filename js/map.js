@@ -15,7 +15,7 @@
 
   // Types de tuiles
   const WATER = 0, GRASS = 1, SIDEWALK = 2, ROAD = 3, PLAZA = 4,
-        DOCK = 5, PATH = 6, BUILDING = 7;
+        DOCK = 5, PATH = 6, BUILDING = 7, SAND = 8;
 
   // Bits de circulation (laneMask)
   const LN = 1, LS = 2, LE = 4, LW = 8;
@@ -38,7 +38,10 @@
   const solidGrid = new Map(); // tile idx -> [solidProps]
   const parkedSpawns = [];
   const pickupSpawns = [];
-  const boats = [];
+  const boatSpawns = [];   // bateaux garés (deviennent de vrais véhicules)
+  const boatRoutes = [];   // itinéraires du trafic nautique PNJ
+  const ladders = [];      // échelles de quai { x, y, topX, topY, waterX, waterY }
+  const beachSeats = [];   // serviettes où des baigneurs peuvent s'asseoir
 
   const vxs = [8, 22, 36, 50, 64, 78, 92, 106, 118];
   const hys = [8, 22, 36, 50, 64, 78, 96, 108, 118];
@@ -47,6 +50,7 @@
   const segs = [];
 
   const DISTRICTS = [
+    { key: "beach",    name: "Croissant de Sable",  x0: 78, y0: 0,  x1: 120, y1: 9 },
     { key: "downtown", name: "Hauteurs Meridian",   x0: 10, y0: 10, x1: 49,  y1: 49 },
     { key: "resid",    name: "Collines de Papier",  x0: 50, y0: 10, x1: 117, y1: 49 },
     { key: "market",   name: "Bazar de l'Ouest",    x0: 10, y0: 50, x1: 49,  y1: 79 },
@@ -99,6 +103,7 @@
     genTerrain(rng);
     genRoads();
     genSidewalks();
+    genBeach(rng);
     reserveSpecials();
     genBlocks(rng);
     genCanalZone(rng);
@@ -107,6 +112,8 @@
     genSpecialBuildings(rng);
     genStreetProps(rng);
     genParkedCars(rng);
+    genLadders();
+    genBoatTraffic();
     genPickups();
     buildMinimap();
 
@@ -192,6 +199,102 @@
         }
       }
     }
+  }
+
+  /* ---------- la plage de sable fin (côte nord) ---------- */
+
+  function genBeach(rng) {
+    const x0 = 82, x1 = 116;
+    for (let x = x0; x <= x1; x++) {
+      // bande de sable côté terre (bords adoucis)
+      const edge = Math.min(x - x0, x1 - x);
+      const deep = edge < 3 ? 1 : 2;
+      for (let k = 0; k < deep; k++)
+        if (get(x, 5 + k) === GRASS) set(x, 5 + k, SAND);
+      // le croissant avance sur la mer au centre
+      const bump = Math.exp(-Math.pow((x - 99) / 11, 2));
+      const sea = Math.round(bump * 2);
+      for (let k = 1; k <= sea; k++) set(x, 5 - k, SAND);
+    }
+    // parasols + serviettes
+    const PARA_C = ["#ff4f9a", "#2ee6a8", "#ffc857", "#7ad7ff", "#e58fb1"];
+    const TOWEL_C = ["#7ad7ff", "#ffc857", "#e58fb1", "#a9dfbf", "#f5f0e6"];
+    const spots = [[87.5, 5.9], [93.2, 5.2], [98.4, 4.3], [104.2, 4.9], [110.6, 5.8]];
+    for (let i = 0; i < spots.length; i++) {
+      const px = spots[i][0] * T, py = spots[i][1] * T;
+      structures.push({ x: px, y: py, r: 40, draw: (ctx, cx, cy) => S.PROPS.parasol(ctx, { x: px, y: py, c: PARA_C[i] }, cx, cy) });
+      addSolid({ shape: "circle", x: px, y: py, r: 3.5 });
+      const tw = { type: "towel", x: px + 20 + rng() * 8, y: py + 6 + rng() * 8, a: (rng() - 0.5) * 0.6, c: U.pick(rng, TOWEL_C) };
+      flatProps.push(tw);
+      beachSeats.push({ x: tw.x, y: tw.y, a: tw.a });
+    }
+    // serviettes isolées
+    for (const [tx2, ty2] of [[90.4, 6.1], [101.5, 5.4], [107.8, 6.0]]) {
+      const tw = { type: "towel", x: tx2 * T, y: ty2 * T, a: (rng() - 0.5) * 0.7, c: U.pick(rng, TOWEL_C) };
+      flatProps.push(tw);
+      beachSeats.push({ x: tw.x, y: tw.y, a: tw.a });
+    }
+    POI.beach = { x: 99 * T, y: 5.6 * T };
+  }
+
+  /* ---------- échelles de quai (pour remonter de l'eau) ---------- */
+
+  // dir : 0 = eau au sud, 1 = eau au nord, 2 = eau à l'ouest, 3 = eau à l'est
+  function addLadder(tx, ty, dir) {
+    if (get(tx, ty) !== DOCK) return;
+    const wx = tx + (dir === 2 ? -1 : dir === 3 ? 1 : 0);
+    const wy = ty + (dir === 0 ? 1 : dir === 1 ? -1 : 0);
+    if (get(wx, wy) !== WATER) return;
+    const cx = (tx + 0.5) * T, cy = (ty + 0.5) * T;
+    const ex = dir === 2 ? tx * T + 4 : dir === 3 ? tx * T + T - 4 : cx;
+    const ey = dir === 0 ? ty * T + T - 4 : dir === 1 ? ty * T + 4 : cy;
+    flatProps.push({ type: "ladder", x: ex, y: ey, dir });
+    ladders.push({
+      x: ex, y: ey,
+      topX: cx, topY: cy,                                   // où on ressort sur le quai
+      waterX: (wx + 0.5) * T, waterY: (wy + 0.5) * T        // où on s'accroche en nageant
+    });
+  }
+
+  function genLadders() {
+    // canal : quai nord (eau au sud) et quai sud (eau au nord)
+    for (const x of [14, 28, 46, 58, 72, 88, 102, 114]) addLadder(x, 84, 0);
+    for (const x of [16, 30, 44, 56, 70, 86, 100, 112]) addLadder(x, 89, 1);
+    // grand quai sud de l'île
+    for (const x of [12, 30, 46, 54, 68, 84, 96, 110, 116]) addLadder(x, 122, 0);
+    // bouts de jetées
+    for (const x of [21, 59, 101]) addLadder(x, 126, 0);
+    // flancs de jetées
+    addLadder(20, 124, 2); addLadder(61, 124, 3); addLadder(100, 124, 2);
+    // étang du parc : berges en pente (pas d'échelle nécessaire)
+  }
+
+  /* ---------- trafic nautique ---------- */
+
+  function genBoatTraffic() {
+    // bateaux garés, à voler (de vrais véhicules, créés par game.js)
+    boatSpawns.push(
+      { type: "boat",  x: 30 * T,  y: 86.9 * T,  a: 0,          c: "#4a6d8c" },
+      { type: "skiff", x: 74 * T,  y: 86.2 * T,  a: Math.PI,    c: "#8c4a5a" },
+      { type: "boat",  x: 111 * T, y: 86.8 * T,  a: 0.1,        c: "#5f8c4a" },
+      { type: "skiff", x: 63.5 * T, y: 124.5 * T, a: -0.15,     c: "#3d6d99" },  // le ferry de Jin
+      { type: "boat",  x: 17 * T,  y: 124 * T,  a: 0.3,         c: "#8c6d3f" },
+      { type: "boat",  x: 99.5 * T, y: 2.1 * T, a: Math.PI * 0.92, c: "#d0567a" } // mouillé devant la plage
+    );
+    // itinéraires PNJ (px) : canal dans les deux sens, bassins sud, plage
+    const wp = (a) => a.map(([x, y]) => ({ x: x * T, y: y * T }));
+    boatRoutes.push(
+      { type: "skiff", c: "#7a8a6a", mode: "pingpong", cruise: 70,
+        wps: wp([[7, 85.9], [35, 85.9], [60, 85.9], [90, 85.9], [118, 85.9]]) },
+      { type: "boat", c: "#2e6d8c", mode: "pingpong", cruise: 120,
+        wps: wp([[118, 87.6], [85, 87.6], [55, 87.6], [25, 87.6], [7, 87.6]]) },
+      { type: "skiff", c: "#8c5a4a", mode: "loop", cruise: 60,
+        wps: wp([[27, 124.2], [40, 123.6], [53, 124.4], [40, 126.3]]) },
+      { type: "skiff", c: "#6d5a8c", mode: "loop", cruise: 65,
+        wps: wp([[66, 124.3], [80, 123.7], [97, 124.5], [82, 126.4]]) },
+      { type: "boat", c: "#c9a227", mode: "pingpong", cruise: 100,
+        wps: wp([[84, 2.2], [99, 1.6], [112, 2.2]]) }
+    );
   }
 
   function reserveSpecials() {
@@ -520,16 +623,10 @@
       structures.push({ x, y, r: 140, draw: (ctx, cx, cy) => S.PROPS.crane(ctx, { x, y }, cx, cy) });
       addSolid({ shape: "rect", x: x - 10, y: y - 7, w: 20, h: 14 });
     }
-    // bateaux dans le canal
-    boats.push({ type: "boat", x: 30 * T, y: 86.9 * T, a: 0, c: "#4a6d8c" });
-    boats.push({ type: "boat", x: 74 * T, y: 86.2 * T, a: Math.PI, c: "#8c4a5a" });
-    boats.push({ type: "boat", x: 111 * T, y: 86.8 * T, a: 0.1, c: "#5f8c4a" });
   }
 
   function genDocksGround(rng) {
-    // jetées sud : caisses, bateaux, grues
-    boats.push({ type: "boat", x: 63.5 * T, y: 124.5 * T, a: -0.15, c: "#3d6d99" }); // le ferry de Jin
-    boats.push({ type: "boat", x: 17 * T, y: 124 * T, a: 0.3, c: "#8c6d3f" });
+    // jetées sud : caisses, grues (les bateaux sont de vrais véhicules)
     for (const gx of [24, 98]) {
       const x = gx * T, y = 120.8 * T;
       structures.push({ x, y, r: 140, draw: (ctx, cx, cy) => S.PROPS.crane(ctx, { x, y }, cx, cy) });
@@ -863,7 +960,7 @@
   const TILE_COLORS = {
     [WATER]: "#16535c", [GRASS]: "#7fae5a", [SIDEWALK]: "#cfc6b3",
     [ROAD]: "#3b3f4a", [PLAZA]: "#d8c9a8", [DOCK]: "#9aa0a3",
-    [PATH]: "#d9c08f", [BUILDING]: "#2a2633"
+    [PATH]: "#d9c08f", [BUILDING]: "#2a2633", [SAND]: "#e8d5a4"
   };
 
   function chunkCanvas(ci, cj) {
@@ -1018,6 +1115,28 @@
           ctx.fillRect(px + tileHash(gx + i, gy) * 40, py + tileHash(gx, gy + i) * 40, 5, 4);
         break;
       }
+      case SAND: {
+        // grain fin : mouchetis clair/foncé
+        for (let i = 0; i < 7; i++) {
+          const hx = tileHash(gx * 5 + i, gy * 9 + i), hy = tileHash(gx * 3 + i * 7, gy + i * 3);
+          ctx.fillStyle = hx < 0.5 ? "rgba(200,170,110,0.5)" : "rgba(255,245,220,0.55)";
+          ctx.fillRect(px + hx * 44, py + hy * 44, 2.4, 2);
+        }
+        // coquillage occasionnel
+        if (h > 0.93) {
+          ctx.fillStyle = "#f5ead6";
+          ctx.beginPath(); ctx.arc(px + 20 + h * 14, py + 26, 2.4, Math.PI, U.TAU); ctx.fill();
+          ctx.strokeStyle = "rgba(140,110,80,0.6)"; ctx.lineWidth = 0.7;
+          ctx.beginPath(); ctx.arc(px + 20 + h * 14, py + 26, 2.4, Math.PI, U.TAU); ctx.stroke();
+        }
+        // sable mouillé au bord de l'eau + ligne d'écume
+        ctx.fillStyle = "rgba(150,120,80,0.35)";
+        if (get(gx, gy - 1) === WATER) ctx.fillRect(px, py, T, 9);
+        if (get(gx, gy + 1) === WATER) ctx.fillRect(px, py + T - 9, T, 9);
+        if (get(gx - 1, gy) === WATER) ctx.fillRect(px, py, 9, T);
+        if (get(gx + 1, gy) === WATER) ctx.fillRect(px + T - 9, py, 9, T);
+        break;
+      }
       case BUILDING: {
         ctx.fillStyle = "#241f2e";
         ctx.fillRect(px, py, T, T);
@@ -1108,11 +1227,6 @@
     for (let cj = cj0; cj <= cj1; cj++)
       for (let ci = ci0; ci <= ci1; ci++)
         ctx.drawImage(chunkCanvas(ci, cj), ci * CPX, cj * CPX);
-    // bateaux décoratifs (sous les entités)
-    for (const b of boats) {
-      if (b.x < vx0 - 80 || b.x > vx1 + 80 || b.y < vy0 - 80 || b.y > vy1 + 80) continue;
-      S.PROPS.boat(ctx, b);
-    }
     // props plats
     for (const p of flatProps) {
       if (p.x < vx0 - 40 || p.x > vx1 + 40 || p.y < vy0 - 40 || p.y > vy1 + 40) continue;
@@ -1343,14 +1457,44 @@
   }
   function isWalkable(px, py) { return !isSolidAt(px, py); }
 
+  // — prédicats selon le mode de déplacement —
+  // marcheur : seul le bâti bloque (l'eau se traverse… en tombant dedans)
+  const solidForWalker = (tx, ty) => get(tx, ty) === BUILDING;
+  // nageur : l'eau, les berges basses (sable/herbe/ponton) et le dessous
+  // des ponts sont praticables ; les quais hauts et le bâti bloquent.
+  function solidForSwimmer(tx, ty) {
+    const t = get(tx, ty);
+    if (t === WATER || t === SAND || t === GRASS || t === PATH) return false;
+    if (t === ROAD && bridgeF[idx(tx, ty)] && ty >= 85 && ty <= 88) return false; // sous un pont du canal
+    return true;
+  }
+  // bateau : uniquement l'eau (et le passage sous les ponts du canal)
+  function boatBlockedTile(tx, ty) {
+    const t = get(tx, ty);
+    if (t === WATER) return false;
+    if (t === ROAD && bridgeF[idx(tx, ty)] && ty >= 85 && ty <= 88) return false;
+    return true;
+  }
+
+  function isWaterAt(px, py) { return get(Math.floor(px / T), Math.floor(py / T)) === WATER; }
+  function isLowShoreAt(px, py) {
+    const t = get(Math.floor(px / T), Math.floor(py / T));
+    return t === SAND || t === GRASS || t === PATH;
+  }
+  function isUnderBridge(px, py) {
+    const tx = Math.floor(px / T), ty = Math.floor(py / T);
+    return inB(tx, ty) && bridgeF[idx(tx, ty)] === 1 && ty >= 85 && ty <= 88;
+  }
+
   // Résout un cercle contre tuiles pleines + props. Modifie e.x, e.y.
-  function collideCircle(e, r) {
+  function collideCircle(e, r, solidFn) {
+    solidFn = solidFn || isSolidTile;
     const tx0 = Math.floor((e.x - r) / T), ty0 = Math.floor((e.y - r) / T);
     const tx1 = Math.floor((e.x + r) / T), ty1 = Math.floor((e.y + r) / T);
     let hit = false;
     for (let ty = ty0; ty <= ty1; ty++) {
       for (let tx = tx0; tx <= tx1; tx++) {
-        if (isSolidTile(tx, ty)) {
+        if (solidFn(tx, ty)) {
           if (pushOutRect(e, r, tx * T, ty * T, T, T)) hit = true;
         }
         const list = solidGrid.get(idx(tx, ty));
@@ -1431,6 +1575,14 @@
     if (m === r) return { x: r, y: 0 };
     if (m === t) return { x: 0, y: -t };
     return { x: 0, y: b };
+  }
+
+  // Version bateau de pointPush : la terre bloque, l'eau (et le passage
+  // sous les ponts du canal) est libre.
+  function pointPushBoat(x, y) {
+    const tx = Math.floor(x / T), ty = Math.floor(y / T);
+    if (boatBlockedTile(tx, ty)) return aabbPush(x, y, tx * T, ty * T, T, T);
+    return null;
   }
 
   // Un point est-il opaque aux balles / à la ligne de vue ?
@@ -1583,7 +1735,7 @@
     const cols = {
       [WATER]: "#0d3a41", [GRASS]: "#4f7a3a", [SIDEWALK]: "#8f8775",
       [ROAD]: "#454a56", [PLAZA]: "#9a8b6d", [DOCK]: "#6a7073",
-      [PATH]: "#9a8352", [BUILDING]: "#2c2637"
+      [PATH]: "#9a8352", [BUILDING]: "#2c2637", [SAND]: "#c9ad74"
     };
     for (let y = 0; y < MH; y++)
       for (let x = 0; x < MW; x++) {
@@ -1606,7 +1758,7 @@
   }
 
   function randomSidewalk(rng, cx, cy, minD, maxD) {
-    return randomWalkable(rng, cx, cy, minD, maxD, [SIDEWALK, PLAZA, PATH]);
+    return randomWalkable(rng, cx, cy, minD, maxD, [SIDEWALK, PLAZA, PATH, SAND]);
   }
 
   function randomLaneTile(rng, cx, cy, minD, maxD) {
@@ -1627,17 +1779,21 @@
 
   G.Map = {
     T, MW, MH, WPX, HPX, MINIMAP_PPT: MM_PPT,
-    WATER, GRASS, SIDEWALK, ROAD, PLAZA, DOCK, PATH, BUILDING,
+    WATER, GRASS, SIDEWALK, ROAD, PLAZA, DOCK, PATH, BUILDING, SAND,
     LN, LS, LE, LW, DIRS,
     generate,
     get, laneMaskAt, isRoad, isSolidTile, isSolidAt, isWalkable,
     isBridge: (tx, ty) => inB(tx, ty) && bridgeF[idx(tx, ty)] === 1,
     collideCircle, blocksShot, lineOfSight, pointPush,
+    collideWalker: (e, r) => collideCircle(e, r, solidForWalker),
+    collideSwimmer: (e, r) => collideCircle(e, r, solidForSwimmer),
+    pointPushBoat, isWaterAt, isLowShoreAt, isUnderBridge,
     nearestRoadTile, findRoadPath, findWalkPath,
     drawGround, drawStructures, drawWaterOverlay,
     districtAt,
     get minimap() { return minimapCanvas; },
     POI, parkedSpawns, pickupSpawns, buildings, benches,
+    boatSpawns, boatRoutes, ladders, beachSeats,
     randomSidewalk, randomLaneTile, randomWalkable
   };
 

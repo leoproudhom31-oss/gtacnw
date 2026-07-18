@@ -37,7 +37,8 @@ dans le navigateur après chaque mission.
 | **Z Q S D** / W A S D / flèches | Se déplacer · Conduire |
 | **Maj** | Sprint |
 | **E** ou Entrée | Monter/descendre d'un véhicule · Interagir |
-| **Espace** | Frapper / Tirer (visée auto avec anticipation) · **Frein à main** en voiture |
+| **Espace** | Frapper / Tirer (visée auto avec anticipation) · **Frein à main** en voiture · Frein moteur en bateau |
+| **E** (dans l'eau) | Grimper à une échelle de quai · Monter dans un bateau |
 | **Clic gauche** | Tirer vers la souris (y compris en conduisant : drive-by) |
 | **Tab** ou **1–4** | Changer d'arme |
 | **K** | Klaxon |
@@ -55,6 +56,8 @@ dans le navigateur après chaque mission.
 
 ### Une île entière, dense, à explorer
 7 quartiers générés de façon déterministe (la même ville pour tout le monde) :
+- **Croissant de Sable** — la plage de sable fin de la côte nord : parasols,
+  serviettes, baigneurs… et un hors-bord au mouillage ;
 - **Hauteurs Meridian** — le centre d'affaires, ses tours vitrées et sa grande place ;
 - **Collines de Papier** — quartier résidentiel, maisons en rangées et jardins ;
 - **Quartier du Lotus** — le cœur : shophouses colorées, enseignes néon, portes
@@ -70,19 +73,39 @@ intersections, freinent, paniquent aux coups de feu), piétons, voitures garées
 volables, mobilier urbain, pickups cachés (santé, argent, armes, armure).
 
 ### Les systèmes de jeu
-- **Véhicules** : 6 types (berline, taxi, sportive, van, pick-up, police),
-  physique arcade **par les quatre coins de la caisse** (couple aux impacts,
-  masses différenciées, tête-à-queue), dérive au frein à main, crissements,
-  feux stop, traces de pneus, dégâts, incendie puis **explosion** avec
-  débris, carjacking ;
+- **Véhicules** : 9 types — berline, taxi, sportive, van, pick-up, police,
+  **moto « Frelon »**, **hors-bord** et **barque** — et chacun se conduit
+  VRAIMENT différemment : accélération, vitesse de pointe, distance de
+  freinage, rayon de braquage, adhérence et dérive au frein à main propres
+  à chaque fiche, **et un son moteur distinct par type** (diesel du van qui
+  claque, hurlement de la sportive, pétarade aiguë de la moto, putt-putt du
+  hors-bord) jusqu'au klaxon (corne de brume comprise). Physique arcade
+  **par les quatre coins de la caisse** (couple aux impacts, masses
+  différenciées, tête-à-queue), crissements, feux stop, traces de pneus,
+  dégâts, incendie puis **explosion** avec débris, carjacking. La moto est
+  nerveuse mais un gros choc **éjecte son pilote** ; le sable de la plage
+  enlise les voitures ;
+- **Bateaux & nage** : les bateaux se pilotent à la barre (inertie de coque,
+  gouvernail inopérant à l'arrêt, sillage d'écume, passage **sous les ponts**
+  du canal), des PNJ **naviguent** leurs routes d'eau sur le canal et dans
+  le port ; tomber à l'eau ne tue plus — Jin **nage** (lentement, arme
+  rangée), ressort par les berges basses (plage, herbe, pontons) ou par les
+  **échelles de quai** posées le long du canal, du grand quai sud et des
+  jetées, et peut se hisser dans un bateau depuis l'eau ;
 - **Armes** : poings, batte, pistolet 9 mm, PM « Guêpe », fusil à pompe —
   **visée auto verrouillée** (lock-on généreux façon console portable, avec
   anticipation de trajectoire) ou tir libre à la souris ;
 - **Une ville qui vit** : les piétons s'assoient sur les bancs, téléphonent,
   discutent par deux, pressent le pas pour traverser, se jettent au sol ou
   fuient sous les coups de feu — et les **témoins d'un crime courent alerter
-  la police** (bulle « ! » : à vous de les en dissuader) ; le trafic suit
-  les files, lève le pied aux intersections, klaxonne, contourne les épaves ;
+  la police** (bulle « ! » : à vous de les en dissuader) ;
+- **Un trafic qui sait conduire** : chaque conducteur suit sa voie par
+  **poursuite pure sur une file de jalons** (trajectoires lissées, zéro
+  zigzag), **freine avant les virages**, garde une distance de sécurité qui
+  grandit avec la vitesse, **cède la priorité** aux véhicules engagés dans
+  le carrefour (avec anti-interblocage), klaxonne quand ça bouchonne,
+  déboîte pour contourner les épaves, et roule à l'allure de son véhicule
+  (le van diesel traîne, la sportive file) ;
 - **Police / étoiles de recherche (5 niveaux)** : une étoile ne s'allume plus
   au moindre écart — le système accumule une **« chaleur »** proportionnelle à
   la gravité du délit et à qui vous a vu (une bousculade se dissipe toute

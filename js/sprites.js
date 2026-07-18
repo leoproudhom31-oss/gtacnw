@@ -200,6 +200,7 @@
 
   function bakePed(x, L, pose, fi, weapon) {
     if (pose === "down") { bakeDown(x, L); return; }
+    if (pose === "swim") { bakeSwim(x, L, fi); return; }
     if (pose === "cower") x.scale(0.86, 0.86);
 
     const swing = pose === "walk" ? WALK_SWING[fi] : 0;
@@ -556,6 +557,27 @@
     }
   }
 
+  /** Nage (crawl, 2 frames) : jambes immergées, un bras allongé qui alterne. */
+  function bakeSwim(x, L, fi) {
+    const fwd = fi === 0 ? 1 : -1; // quel bras est devant
+    // sillage clair derrière les épaules (l'eau brassée)
+    x.fillStyle = "rgba(232,246,248,0.30)";
+    x.beginPath(); x.ellipse(-7, 0, 6.5, 5, 0, 0, U.TAU); x.fill();
+    // torse : écrasé, à moitié sous l'eau
+    Er(x, -1, 0, 6.8, 5.6, 0, L.top, true);
+    x.strokeStyle = INK; x.lineWidth = 1.2;
+    x.beginPath(); x.ellipse(-1, 0, 6.8, 5.6, 0, 0, U.TAU); x.stroke();
+    // bras avant tendu + bras arrière qui sort de l'eau
+    Er(x, 6.5, -3.4 * fwd, 4.6, 2.1, 0.16 * fwd, L.top, false, 1.2, -0.18);
+    Er(x, 10.2, -3.9 * fwd, 1.6, 1.4, 0, L.skin);
+    Er(x, -3.5, 4.6 * fwd, 3.2, 2, -0.35 * fwd, L.top, false, 1.2, -0.18);
+    // remous aux pieds
+    x.fillStyle = "rgba(232,246,248,0.5)";
+    x.beginPath(); x.ellipse(-9.5, 1.6 * fwd, 2.6, 1.8, 0, 0, U.TAU); x.fill();
+    x.beginPath(); x.ellipse(-12, -1.2 * fwd, 1.8, 1.3, 0, 0, U.TAU); x.fill();
+    bakeHead(x, L);
+  }
+
   function bakeDown(x, L) {
     // au sol, membres relâchés
     Er(x, -6, 2.5, 4, 2.3, 0.5, L.bottom);
@@ -580,7 +602,15 @@
 
     // ombre portée (hors sprite : elle ne tourne pas avec le corps),
     // dégradé radial → bords doux plutôt qu'une tache dure.
-    if (pose !== "down") {
+    if (pose === "swim") {
+      // dans l'eau : anneau d'ondulations à la place de l'ombre
+      ctx.strokeStyle = "rgba(232,246,248,0.35)";
+      ctx.lineWidth = 1.6;
+      const rr = 11 + Math.sin(walkPhase * 1.7) * 1.6;
+      ctx.beginPath(); ctx.ellipse(0, 0, rr, rr * 0.8, 0, 0, U.TAU); ctx.stroke();
+      ctx.strokeStyle = "rgba(232,246,248,0.16)";
+      ctx.beginPath(); ctx.ellipse(0, 0, rr + 4.5, (rr + 4.5) * 0.8, 0, 0, U.TAU); ctx.stroke();
+    } else if (pose !== "down" && !opt.noShadow) {
       const sg = ctx.createRadialGradient(1.6, 2.8, 1.2, 1.6, 2.8, 9.4);
       sg.addColorStop(0, "rgba(8,6,16,0.36)");
       sg.addColorStop(0.62, "rgba(8,6,16,0.22)");
@@ -593,6 +623,7 @@
 
     let fi = 0;
     if (pose === "walk") fi = Math.floor(walkPhase / (Math.PI / 2)) & 3;
+    else if (pose === "swim") fi = Math.floor(walkPhase / Math.PI) & 1;
     else if (pose === "punch") fi = (opt.punchT || 0) > 0.45 ? 0 : 1;
 
     const weapon = (pose === "aim" || opt.showWeapon) ? opt.weapon : null;
@@ -610,13 +641,20 @@
      VÉHICULES — pré-rendus sur canvas offscreen (face à +x)
      ========================================================= */
 
+  // Chaque type a SA conduite : accel, vitesse max, freinage (brake, px/s²),
+  // adhérence latérale (grip), dérive au frein à main (drift : plus bas =
+  // plus glissant), rayon de braquage (turn), marche arrière (rev), masse.
+  // name : affiché au vol du véhicule. water/bike : physique dédiée.
   const VEHICLE_DEFS = {
-    sedan:  { L: 46, W: 22, cabin: [0.28, 0.72], body: null,      maxSpeed: 290, accel: 210, grip: 7.5, turn: 2.6, hp: 100, mass: 1.00 },
-    taxi:   { L: 46, W: 22, cabin: [0.28, 0.72], body: "#f7c948", maxSpeed: 290, accel: 215, grip: 7.5, turn: 2.7, hp: 100, mass: 1.00 },
-    sport:  { L: 46, W: 20, cabin: [0.34, 0.66], body: null,      maxSpeed: 380, accel: 300, grip: 9.0, turn: 3.1, hp:  85, mass: 0.88 },
-    van:    { L: 52, W: 25, cabin: [0.55, 0.95], body: null,      maxSpeed: 240, accel: 160, grip: 6.0, turn: 2.2, hp: 130, mass: 1.45 },
-    pickup: { L: 50, W: 24, cabin: [0.42, 0.72], body: null,      maxSpeed: 260, accel: 185, grip: 6.8, turn: 2.4, hp: 120, mass: 1.30 },
-    police: { L: 47, W: 22, cabin: [0.30, 0.70], body: "#e8e8ee", maxSpeed: 330, accel: 260, grip: 8.5, turn: 2.9, hp: 110, mass: 1.10 }
+    sedan:  { name: "Berline",        L: 46, W: 22, cabin: [0.28, 0.72], body: null,      maxSpeed: 280, accel: 195, brake: 330, grip: 7.5, drift: 1.8, turn: 2.55, rev: 90,  hp: 100, mass: 1.00 },
+    taxi:   { name: "Taxi",           L: 46, W: 22, cabin: [0.28, 0.72], body: "#f7c948", maxSpeed: 290, accel: 220, brake: 380, grip: 8.2, drift: 1.9, turn: 2.85, rev: 100, hp: 100, mass: 1.00 },
+    sport:  { name: "Sportive",       L: 46, W: 20, cabin: [0.34, 0.66], body: null,      maxSpeed: 400, accel: 330, brake: 430, grip: 9.6, drift: 1.35, turn: 3.2, rev: 110, hp:  85, mass: 0.86 },
+    van:    { name: "Van",            L: 52, W: 25, cabin: [0.55, 0.95], body: null,      maxSpeed: 225, accel: 135, brake: 250, grip: 5.6, drift: 2.3, turn: 2.0,  rev: 70,  hp: 135, mass: 1.50 },
+    pickup: { name: "Pick-up",        L: 50, W: 24, cabin: [0.42, 0.72], body: null,      maxSpeed: 255, accel: 170, brake: 300, grip: 6.6, drift: 2.0, turn: 2.35, rev: 80,  hp: 120, mass: 1.30 },
+    police: { name: "Patrouilleuse",  L: 47, W: 22, cabin: [0.30, 0.70], body: "#e8e8ee", maxSpeed: 340, accel: 280, brake: 400, grip: 8.8, drift: 1.6, turn: 3.0,  rev: 100, hp: 110, mass: 1.10 },
+    bike:   { name: "Moto « Frelon »", L: 34, W: 13, cabin: null,        body: null,      maxSpeed: 375, accel: 345, brake: 390, grip: 10.5, drift: 1.2, turn: 3.9, rev: 70,  hp:  55, mass: 0.45, bike: true },
+    boat:   { name: "Hors-bord",      L: 46, W: 19, cabin: null,        body: null,      maxSpeed: 310, accel: 130, brake: 170, grip: 2.0, drift: 2.0, turn: 1.9,  rev: 60,  hp:  90, mass: 1.15, water: true },
+    skiff:  { name: "Barque",         L: 42, W: 17, cabin: null,        body: null,      maxSpeed: 150, accel: 65,  brake: 110, grip: 2.2, drift: 2.2, turn: 1.6,  rev: 50,  hp: 110, mass: 1.30, water: true }
   };
 
   const CAR_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#d35400", "#16a085",
@@ -678,6 +716,115 @@
     ctx.fillRect(cx - 0.7, cy - wd / 2 + 0.9, 1.4, wd - 1.8);
   }
 
+  /** Moto vue du dessus (face à +x) : roues, fourche, réservoir, selle. */
+  function bakeBike(ctx, L, W, body, dark, lite) {
+    const cy = W / 2;
+    // ombre de contact
+    ctx.fillStyle = "rgba(8,6,14,0.25)";
+    roundRect(ctx, 2, cy - 3.5, L - 4, 7, 3.5); ctx.fill();
+    // roues (fines, dans l'axe)
+    ctx.fillStyle = "#15151c";
+    roundRect(ctx, L - 10.5, cy - 2.1, 10, 4.2, 2); ctx.fill();   // avant
+    roundRect(ctx, 0.5, cy - 2.3, 10.5, 4.6, 2); ctx.fill();      // arrière
+    ctx.fillStyle = "#3a3d45";
+    ctx.fillRect(L - 9, cy - 0.7, 7, 1.4);
+    ctx.fillRect(2, cy - 0.7, 7.5, 1.4);
+    // bras oscillant + fourche
+    ctx.strokeStyle = "#2a2d34"; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(9, cy); ctx.lineTo(14, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(L - 9, cy); ctx.lineTo(L - 13.5, cy); ctx.stroke();
+    // carénage / réservoir : goutte effilée vers l'avant
+    const bg = ctx.createLinearGradient(0, cy - 5, 0, cy + 5);
+    bg.addColorStop(0, lite); bg.addColorStop(0.5, body); bg.addColorStop(1, dark);
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.moveTo(10, cy - 3.2);
+    ctx.quadraticCurveTo(L * 0.55, cy - 5.4, L - 12, cy - 2.4);
+    ctx.quadraticCurveTo(L - 8.5, cy, L - 12, cy + 2.4);
+    ctx.quadraticCurveTo(L * 0.55, cy + 5.4, 10, cy + 3.2);
+    ctx.quadraticCurveTo(7.5, cy, 10, cy - 3.2);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.1; ctx.stroke();
+    // selle
+    ctx.fillStyle = "#1d1a20";
+    roundRect(ctx, 11, cy - 2.6, 9, 5.2, 2.2); ctx.fill();
+    // guidon (perpendiculaire, au niveau de la fourche)
+    ctx.strokeStyle = "#20242c"; ctx.lineWidth = 1.8; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(L - 14, cy - 6.2); ctx.lineTo(L - 11.5, cy - 1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(L - 14, cy + 6.2); ctx.lineTo(L - 11.5, cy + 1); ctx.stroke();
+    ctx.lineCap = "butt";
+    // phare + feu arrière
+    ctx.fillStyle = "#fff4cf";
+    ctx.beginPath(); ctx.arc(L - 10.5, cy, 1.7, 0, U.TAU); ctx.fill();
+    ctx.fillStyle = "#d0342b";
+    ctx.fillRect(9.5, cy - 1.3, 1.6, 2.6);
+    // pot d'échappement
+    ctx.fillStyle = "#8f959d";
+    roundRect(ctx, 4, cy + 2.6, 10, 2, 1); ctx.fill();
+  }
+
+  /** Bateau vu du dessus (proue vers +x) : coque, pont, pare-brise, hors-bord. */
+  function bakeBoat(ctx, type, L, W, body, dark, lite) {
+    const cy = W / 2;
+    const skiff = type === "skiff";
+    // coque : proue effilée, poupe carrée
+    const hull = (inset) => {
+      ctx.beginPath();
+      ctx.moveTo(2 + inset, cy - W / 2 + 1.2 + inset * 0.8);
+      ctx.lineTo(L * 0.58, cy - W / 2 + 1.2 + inset * 0.8);
+      ctx.quadraticCurveTo(L - 1 - inset * 1.6, cy - W * 0.16, L - 1 - inset * 1.6, cy);
+      ctx.quadraticCurveTo(L - 1 - inset * 1.6, cy + W * 0.16, L * 0.58, cy + W / 2 - 1.2 - inset * 0.8);
+      ctx.lineTo(2 + inset, cy + W / 2 - 1.2 - inset * 0.8);
+      ctx.quadraticCurveTo(0.6 + inset, cy, 2 + inset, cy - W / 2 + 1.2 + inset * 0.8);
+      ctx.closePath();
+    };
+    const bg = ctx.createLinearGradient(0, 0, 0, W);
+    bg.addColorStop(0, lite); bg.addColorStop(0.5, body); bg.addColorStop(1, dark);
+    ctx.fillStyle = bg;
+    hull(0); ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.4; ctx.stroke();
+    // pont intérieur
+    ctx.fillStyle = skiff ? "#a9805b" : U.shade(body, 0.35);
+    hull(2.4); ctx.fill();
+    ctx.strokeStyle = "rgba(18,14,28,0.4)"; ctx.lineWidth = 0.8; ctx.stroke();
+    if (skiff) {
+      // lattes de bois + cargaison de pêche
+      ctx.strokeStyle = "rgba(90,58,34,0.55)"; ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      for (let i = 1; i < 5; i++) { ctx.moveTo(4, 2.4 + (W - 4.8) * i / 5); ctx.lineTo(L - 6, 2.4 + (W - 4.8) * i / 5); }
+      ctx.stroke();
+      ctx.fillStyle = "#8c6d3f"; ctx.strokeStyle = INK; ctx.lineWidth = 0.9;
+      ctx.fillRect(L * 0.42, cy - 3.6, 7, 7); ctx.strokeRect(L * 0.42, cy - 3.6, 7, 7);
+      ctx.fillStyle = "#6d7a8c";
+      ctx.fillRect(L * 0.6, cy - 2.6, 5.4, 5.2); ctx.strokeRect(L * 0.6, cy - 2.6, 5.4, 5.2);
+      // barre franche
+      ctx.strokeStyle = "#5a3a22"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(3, cy); ctx.lineTo(11, cy); ctx.stroke();
+    } else {
+      // pare-brise incurvé + console + sièges
+      ctx.fillStyle = "rgba(110,160,190,0.65)";
+      ctx.beginPath();
+      ctx.moveTo(L * 0.62, cy - W * 0.3);
+      ctx.quadraticCurveTo(L * 0.72, cy, L * 0.62, cy + W * 0.3);
+      ctx.lineTo(L * 0.58, cy + W * 0.3);
+      ctx.quadraticCurveTo(L * 0.68, cy, L * 0.58, cy - W * 0.3);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "rgba(18,14,28,0.5)"; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.fillStyle = "#20242c";
+      roundRect(ctx, L * 0.40, cy - 3.2, 6.5, 6.4, 1.6); ctx.fill();   // siège pilote
+      roundRect(ctx, L * 0.24, cy - 5.6, 6, 4.6, 1.4); ctx.fill();     // banquettes
+      roundRect(ctx, L * 0.24, cy + 1, 6, 4.6, 1.4); ctx.fill();
+      // liseré de flottaison
+      ctx.strokeStyle = "rgba(245,240,230,0.8)"; ctx.lineWidth = 1;
+      hull(1.1); ctx.stroke();
+    }
+    // moteur hors-bord à la poupe
+    ctx.fillStyle = "#2a2d34"; ctx.strokeStyle = INK; ctx.lineWidth = 1;
+    roundRect(ctx, -2.6, cy - 2.6, 5.6, 5.2, 1.4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = skiff ? "#5f6d5f" : "#8f959d";
+    ctx.fillRect(-4.2, cy - 1.1, 2.2, 2.2);
+  }
+
   function vehicleSprite(type, color) {
     const key = type + "|" + color;
     let c = vehicleCache.get(key);
@@ -700,6 +847,10 @@
     const dark = U.shade(body, -0.34);
     const darker = U.shade(body, -0.5);
     const lite = U.shade(body, 0.28);
+
+    if (def.bike) { bakeBike(ctx, L, W, body, dark, lite); vehicleCache.set(key, c); return c; }
+    if (def.water) { bakeBoat(ctx, type, L, W, body, dark, lite); vehicleCache.set(key, c); return c; }
+
     const c0 = L * def.cabin[0], c1 = L * def.cabin[1];
 
     /* ---------- roues (sous la caisse, dépassent sur les côtés) ---------- */
@@ -1129,6 +1280,67 @@
       ctx.closePath(); ctx.fill();
       ctx.fillStyle = "#2f3640";
       ctx.fillRect(-20, -4, 12, 8);
+      ctx.restore();
+    },
+
+    // échelle de quai : deux montants + barreaux qui descendent sur l'eau.
+    // p.dir : 0 = l'eau est au sud (échelle sous le bord), 1 = au nord.
+    ladder(ctx, p) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      if (p.dir === 1) ctx.rotate(Math.PI);
+      if (p.dir === 2) ctx.rotate(-Math.PI / 2);
+      if (p.dir === 3) ctx.rotate(Math.PI / 2);
+      ctx.strokeStyle = "#8f959d"; ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(-4.5, -6); ctx.lineTo(-4.5, 9);
+      ctx.moveTo(4.5, -6); ctx.lineTo(4.5, 9);
+      ctx.stroke();
+      ctx.strokeStyle = "#b9c0c8"; ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) { ctx.moveTo(-4.5, -3 + i * 3.6); ctx.lineTo(4.5, -3 + i * 3.6); }
+      ctx.stroke();
+      // ancrages au sol
+      ctx.fillStyle = "#5a6068";
+      ctx.fillRect(-6, -7.5, 3, 3); ctx.fillRect(3, -7.5, 3, 3);
+      ctx.restore();
+    },
+
+    // parasol de plage : pied + toile rayée vue de dessus (avec élévation)
+    parasol(ctx, p, camX, camY) {
+      ctx.fillStyle = "rgba(10,8,20,0.22)";
+      ctx.beginPath(); ctx.ellipse(p.x + 5, p.y + 5, 13, 10, 0, 0, U.TAU); ctx.fill();
+      elevate(p.x, p.y, 34, camX, camY, _p);
+      ctx.strokeStyle = "#6d5a3f"; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(_p.x, _p.y); ctx.stroke();
+      const r = 14;
+      const c1 = p.c || "#ff4f9a", c2 = "#f5f0e6";
+      for (let i = 0; i < 8; i++) {
+        ctx.fillStyle = i % 2 ? c1 : c2;
+        ctx.beginPath();
+        ctx.moveTo(_p.x, _p.y);
+        ctx.arc(_p.x, _p.y, r, (i / 8) * U.TAU, ((i + 1) / 8) * U.TAU);
+        ctx.closePath(); ctx.fill();
+      }
+      ctx.strokeStyle = INK; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(_p.x, _p.y, r, 0, U.TAU); ctx.stroke();
+      ctx.fillStyle = "#3a2a1a";
+      ctx.beginPath(); ctx.arc(_p.x, _p.y, 1.6, 0, U.TAU); ctx.fill();
+    },
+
+    // serviette de plage
+    towel(ctx, p) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.a || 0);
+      ctx.fillStyle = p.c || "#7ad7ff";
+      ctx.strokeStyle = "rgba(18,14,28,0.5)"; ctx.lineWidth = 1;
+      ctx.fillRect(-11, -7, 22, 14); ctx.strokeRect(-11, -7, 22, 14);
+      ctx.strokeStyle = "rgba(245,240,230,0.7)"; ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-8, -7); ctx.lineTo(-8, 7);
+      ctx.moveTo(8, -7); ctx.lineTo(8, 7);
+      ctx.stroke();
       ctx.restore();
     },
 

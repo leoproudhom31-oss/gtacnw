@@ -520,7 +520,8 @@
       enterT: 0,
       aimTarget: null,
       hurtFlash: 0,
-      onBridge: false
+      onBridge: false,
+      swimming: false
     };
   }
 
@@ -543,20 +544,88 @@
       return;
     }
 
-    // ------- à pied -------
+    // ------- à pied / à la nage -------
     const ax = In.axis();
     // direction relative à la caméra (la caméra pivote !)
     const c = Math.cos(-Cam.rot), s = Math.sin(-Cam.rot);
     const mx = ax.x * c - ax.y * s;
     const my = ax.x * s + ax.y * c;
     const moving = (mx !== 0 || my !== 0);
+
+    if (pl.swimming && !M().isWaterAt(pl.x, pl.y) && !M().isUnderBridge(pl.x, pl.y) &&
+        !M().isLowShoreAt(pl.x, pl.y)) {
+      // déjà au sec en début de frame (échelle, téléportation de mission,
+      // reprise de checkpoint…) : l'état de nage se dissipe immédiatement.
+      // (À la nage, on ne peut jamais se retrouver centré sur un quai haut :
+      // la collision nageur l'empêche — ce cas ne couvre que les placements.)
+      pl.swimming = false;
+      pl.walkPhase = 0;
+    }
+
+    if (pl.swimming) {
+      // ----- nage : lent, pas d'arme, sortie par berge basse ou échelle -----
+      const speed = In.sprint ? 95 : 66;
+      pl.vx = mx * speed;
+      pl.vy = my * speed;
+      pl.x += pl.vx * dt;
+      pl.y += pl.vy * dt;
+      M().collideSwimmer(pl, pl.radius);
+
+      if (moving) {
+        pl.angle = U.angleDamp(pl.angle, Math.atan2(my, mx), 10, dt);
+        pl.walkPhase += dt * speed * 0.075;
+      } else {
+        pl.walkPhase += dt * 2.2; // surplace : l'eau ondule quand même
+      }
+
+      // sortie de l'eau par une berge basse (plage, herbe, ponton)
+      if (!M().isWaterAt(pl.x, pl.y) && !M().isUnderBridge(pl.x, pl.y) &&
+          M().isLowShoreAt(pl.x, pl.y)) {
+        pl.swimming = false;
+        pl.walkPhase = 0;
+        w.addParticle("splash", pl.x, pl.y, 4);
+      }
+
+      // E : grimper à une échelle de quai, ou monter dans un bateau
+      if (In.action && pl.enterT <= 0) {
+        let lad = null, ld = 46;
+        for (const l of M().ladders) {
+          const d = U.dist(pl.x, pl.y, l.waterX, l.waterY);
+          if (d < ld) { lad = l; ld = d; }
+        }
+        if (lad) {
+          pl.x = lad.topX; pl.y = lad.topY;
+          pl.swimming = false;
+          pl.walkPhase = 0;
+          pl.enterT = 0.5;
+          G.Audio.play("door");
+        } else {
+          const v = w.nearestVehicle(pl.x, pl.y, 84);
+          if (v && !v.wreck) enterVehicle(pl, w, v);
+        }
+      }
+
+      pl.aimTarget = null;
+      return;
+    }
+
     const speed = In.sprint ? 190 : 125;
 
     pl.vx = mx * speed;
     pl.vy = my * speed;
     pl.x += pl.vx * dt;
     pl.y += pl.vy * dt;
-    M().collideCircle(pl, pl.radius);
+    M().collideWalker(pl, pl.radius);
+
+    // tombé / entré dans l'eau → on nage
+    if (M().isWaterAt(pl.x, pl.y)) {
+      pl.swimming = true;
+      pl.walkPhase = 0;
+      G.Audio.play("splash");
+      w.addParticle("splash", pl.x, pl.y, 7);
+      pl.aimTarget = null;
+      return;
+    }
 
     if (moving) {
       pl.angle = U.angleDamp(pl.angle, Math.atan2(my, mx), 14, dt);
@@ -581,7 +650,7 @@
           if (U.dist(pl.x, pl.y, tgt.x, tgt.y) > 28) {
             pl.x += Math.cos(pl.angle) * 8;
             pl.y += Math.sin(pl.angle) * 8;
-            M().collideCircle(pl, pl.radius);
+            M().collideWalker(pl, pl.radius);
           }
         }
         let hit = false;
@@ -703,20 +772,28 @@
       // voler une voiture de police occupée : gros délit
       w.addHeat(40, true);
     } else if (v.ai && v.driverKind === "civ") {
-      // carjacking : le conducteur s'enfuit
-      const rng = Math.random;
-      const ped = makePed("civ", v.x + Math.cos(v.angle + Math.PI / 2) * 26, v.y + Math.sin(v.angle + Math.PI / 2) * 26);
-      ped.state = "flee"; ped.threatX = pl.x; ped.threatY = pl.y;
-      w.peds.push(ped);
-      w.addHeat(18, false);
+      if (v.def.water) {
+        // le pilote plonge par-dessus bord
+        w.addParticle("splash", v.x + Math.cos(v.angle + Math.PI / 2) * 14, v.y + Math.sin(v.angle + Math.PI / 2) * 14, 6);
+        G.Audio.play("splash");
+        w.addHeat(14, false);
+      } else {
+        // carjacking : le conducteur s'enfuit
+        const ped = makePed("civ", v.x + Math.cos(v.angle + Math.PI / 2) * 26, v.y + Math.sin(v.angle + Math.PI / 2) * 26);
+        ped.state = "flee"; ped.threatX = pl.x; ped.threatY = pl.y;
+        if (v.riderLook) ped.look = v.riderLook;
+        w.peds.push(ped);
+        w.addHeat(18, false);
+      }
     }
     v.ai = null;
     v.driverKind = "player";
     pl.vehicle = v;
     pl.enterT = 0.5;
+    pl.swimming = false;
     pl.x = v.x; pl.y = v.y;
     G.Audio.play("door");
-    G.Audio.startEngine();
+    G.Audio.startEngine(v.type);
     w.onEnterVehicle(v);
   }
 
@@ -725,15 +802,25 @@
     const sp = Math.sqrt(v.vx * v.vx + v.vy * v.vy);
     if (sp > 140) return; // trop rapide pour sauter
     const side = v.angle + Math.PI / 2;
-    const ex = v.x + Math.cos(side) * (v.def.W / 2 + 14);
-    const ey = v.y + Math.sin(side) * (v.def.W / 2 + 14);
-    if (M().isSolidAt(ex, ey)) {
-      const ex2 = v.x - Math.cos(side) * (v.def.W / 2 + 14);
-      const ey2 = v.y - Math.sin(side) * (v.def.W / 2 + 14);
-      if (M().isSolidAt(ex2, ey2)) return;
-      pl.x = ex2; pl.y = ey2;
-    } else {
-      pl.x = ex; pl.y = ey;
+    let placed = false;
+    for (const s of [1, -1]) {
+      const ex = v.x + Math.cos(side) * (v.def.W / 2 + 14) * s;
+      const ey = v.y + Math.sin(side) * (v.def.W / 2 + 14) * s;
+      if (!M().isSolidAt(ex, ey)) { pl.x = ex; pl.y = ey; placed = true; break; }
+    }
+    if (!placed) {
+      if (v.def.water) {
+        // en pleine eau : on saute par-dessus bord et on nage
+        pl.x = v.x + Math.cos(side) * (v.def.W / 2 + 16);
+        pl.y = v.y + Math.sin(side) * (v.def.W / 2 + 16);
+        pl.swimming = true;
+        G.Audio.play("splash");
+        w.addParticle("splash", pl.x, pl.y, 6);
+      } else return;
+    } else if (M().isWaterAt(pl.x, pl.y)) {
+      pl.swimming = true;
+      G.Audio.play("splash");
+      w.addParticle("splash", pl.x, pl.y, 6);
     }
     v.throttle = 0; v.steer = 0; v.driverKind = null;
     pl.vehicle = null;
@@ -748,8 +835,10 @@
     const ax = In.axis();
     v.throttle = -ax.y;               // haut = accélérer
     v.steer = ax.x;
-    v.handbrake = In.attackHeld && !In.mouseFire; // espace = frein à main
-    if (In.wasPressed("KeyK")) { G.Audio.play("horn"); w.noise(v.x, v.y, 300, "horn"); }
+    // espace = frein à main (les bateaux n'en ont pas : simple frein moteur)
+    v.handbrake = !v.def.water && In.attackHeld && !In.mouseFire;
+    if (v.def.water && In.attackHeld && !In.mouseFire) v.throttle = Math.min(v.throttle, -0.6);
+    if (In.wasPressed("KeyK")) { G.Audio.horn(v.type); w.noise(v.x, v.y, 300, "horn"); }
 
     pl.x = v.x; pl.y = v.y;
     pl.angle = v.angle;
@@ -796,8 +885,9 @@
     ctx.translate(pl.x, pl.y);
     const wp = WEAPONS[pl.weapon];
     let pose = "idle";
-    const opt = { weapon: pl.weapon === "fist" ? null : pl.weapon, showWeapon: !wp.melee };
+    const opt = { weapon: pl.weapon === "fist" ? null : pl.weapon, showWeapon: !wp.melee && !pl.swimming };
     if (pl.dead) pose = "down";
+    else if (pl.swimming) pose = "swim";
     else if (pl.punchAnimT > 0 && wp.melee) { pose = "punch"; opt.punchT = pl.punchAnimT / 0.28; }
     else if (!wp.melee && (pl.aimTarget || G.Input.attackHeld)) pose = "aim";
     else if (pl.walkPhase > 0) pose = "walk";
@@ -853,51 +943,84 @@
     const driving = v.driverKind !== null;
     if (!driving && vehicleSpeed(v) < 2) { v.vx = 0; v.vy = 0; return true; }
 
-    // --- physique arcade ---
+    // --- physique arcade, différenciée par type ---
     const def = v.def;
     const fw = { x: Math.cos(v.angle), y: Math.sin(v.angle) };
     const rt = { x: -fw.y, y: fw.x };
     let fSpd = v.vx * fw.x + v.vy * fw.y;
     let lSpd = v.vx * rt.x + v.vy * rt.y;
 
-    // accélération / freinage
-    if (v.throttle > 0) fSpd += def.accel * v.throttle * dt;
-    else if (v.throttle < 0) {
-      if (fSpd > 5) fSpd += def.accel * 1.6 * v.throttle * dt;      // frein
-      else fSpd = Math.max(fSpd + def.accel * 0.7 * v.throttle * dt, -95); // marche arrière
+    if (def.water) {
+      // ----- bateau : inertie, pas de frein à main, gouvernail -----
+      if (v.throttle > 0) fSpd += def.accel * v.throttle * dt;
+      else if (v.throttle < 0) {
+        if (fSpd > 5) fSpd -= def.brake * (-v.throttle) * dt;
+        else fSpd = Math.max(fSpd - def.accel * 0.5 * (-v.throttle) * dt, -def.rev);
+      }
+      // l'eau freine toujours, mais on glisse longtemps
+      fSpd *= Math.exp(-(v.throttle === 0 ? 0.5 : 0.14) * dt);
+      fSpd = U.clamp(fSpd, -def.rev, def.maxSpeed);
+      // dérive : la coque n'accroche pas comme des pneus
+      lSpd *= Math.exp(-def.grip * dt);
+      // gouvernail : inopérant à l'arrêt
+      const steerEff = v.steer * def.turn * U.clamp(Math.abs(fSpd) / 170, 0, 1) * Math.sign(fSpd || 1);
+      v.angle += (steerEff + v.angVel) * dt;
+      v.angVel *= Math.exp(-4 * dt);
+      v.braking = false;
+    } else {
+      // ----- véhicule terrestre -----
+      // accélération / freinage / marche arrière : selon la fiche du type
+      if (v.throttle > 0) fSpd += def.accel * v.throttle * dt;
+      else if (v.throttle < 0) {
+        if (fSpd > 5) fSpd -= def.brake * (-v.throttle) * dt;
+        else fSpd = Math.max(fSpd + def.accel * 0.7 * v.throttle * dt, -def.rev);
+      }
+      // frottements
+      fSpd *= Math.exp(-(v.throttle === 0 ? 0.9 : 0.15) * dt);
+      if (v.handbrake) fSpd *= Math.exp(-1.6 * dt);
+      // le sable de la plage enlise les voitures
+      if (M().get(Math.floor(v.x / 48), Math.floor(v.y / 48)) === M().SAND) {
+        fSpd *= Math.exp(-1.1 * dt);
+        fSpd = U.clamp(fSpd, -60, def.maxSpeed * 0.55);
+      }
+      fSpd = U.clamp(fSpd, -def.rev, def.maxSpeed);
+
+      // adhérence latérale (dérive au frein à main, selon le type)
+      lSpd *= Math.exp(-(v.handbrake ? def.drift : def.grip) * dt);
+
+      // direction + moment induit par les chocs
+      const steerEff = v.steer * def.turn * U.clamp(Math.abs(fSpd) / 130, 0, 1) * Math.sign(fSpd || 1);
+      v.angle += (steerEff * (v.handbrake ? 1.5 : 1) + v.angVel) * dt;
+      v.angVel *= Math.exp(-5 * dt);
+
+      v.braking = v.throttle < -0.1 && fSpd > 15;
     }
-    // frottements
-    fSpd *= Math.exp(-(v.throttle === 0 ? 0.9 : 0.15) * dt);
-    if (v.handbrake) fSpd *= Math.exp(-1.6 * dt);
-    fSpd = U.clamp(fSpd, -95, def.maxSpeed);
-
-    // adhérence latérale (dérive au frein à main)
-    lSpd *= Math.exp(-(v.handbrake ? 1.8 : def.grip) * dt);
-
-    // direction + moment induit par les chocs
-    const steerEff = v.steer * def.turn * U.clamp(Math.abs(fSpd) / 130, 0, 1) * Math.sign(fSpd || 1);
-    v.angle += (steerEff * (v.handbrake ? 1.5 : 1) + v.angVel) * dt;
-    v.angVel *= Math.exp(-5 * dt);
-
-    v.braking = v.throttle < -0.1 && fSpd > 15;
 
     v.vx = fw.x * fSpd + rt.x * lSpd;
     v.vy = fw.y * fSpd + rt.y * lSpd;
     v.x += v.vx * dt;
     v.y += v.vy * dt;
 
-    // traces + crissements de pneus
-    if (v.handbrake && Math.abs(fSpd) > 90 && v.driverKind === "player") {
-      w.addSkid(v);
-    }
-    v.screechT = Math.max(0, v.screechT - dt);
-    if (((Math.abs(lSpd) > 62 && Math.abs(fSpd) > 100) || (v.braking && fSpd > 215)) &&
-        v.screechT <= 0 && U.dist2(v.x, v.y, w.player.x, w.player.y) < 700 * 700) {
-      G.Audio.play("screech");
-      v.screechT = 0.5;
+    if (def.water) {
+      // sillage d'écume à la poupe
+      if (Math.abs(fSpd) > 45 && Math.random() < 0.55) {
+        w.addParticle("wake", v.x - fw.x * def.L * 0.42 + (Math.random() - 0.5) * 8,
+                              v.y - fw.y * def.L * 0.42 + (Math.random() - 0.5) * 8, 1);
+      }
+    } else {
+      // traces + crissements de pneus
+      if (v.handbrake && Math.abs(fSpd) > 90 && v.driverKind === "player") {
+        w.addSkid(v);
+      }
+      v.screechT = Math.max(0, v.screechT - dt);
+      if (((Math.abs(lSpd) > 62 && Math.abs(fSpd) > 100) || (v.braking && fSpd > 215)) &&
+          v.screechT <= 0 && U.dist2(v.x, v.y, w.player.x, w.player.y) < 700 * 700) {
+        G.Audio.play("screech");
+        v.screechT = 0.5;
+      }
     }
 
-    // --- collisions monde : les quatre coins de la caisse ---
+    // --- collisions monde : les quatre coins de la caisse / coque ---
     const hl = def.L * 0.44, hw = def.W * 0.48;
     let impact = 0;
     let wnx = 0, wny = 0, wnCount = 0; // normale moyenne des murs touchés (pour l'IA)
@@ -905,7 +1028,7 @@
       const ox = c[0] * hl, oy = c[1] * hw;
       const wx = v.x + ox * fw.x - oy * fw.y;
       const wy = v.y + ox * fw.y + oy * fw.x;
-      const push = M().pointPush(wx, wy);
+      const push = def.water ? M().pointPushBoat(wx, wy) : M().pointPush(wx, wy);
       if (!push) continue;
       v.x += push.x; v.y += push.y;
       const pl = Math.sqrt(push.x * push.x + push.y * push.y) || 1;
@@ -930,17 +1053,41 @@
       v.wallT = Math.max(0, (v.wallT || 0) - dt);
     }
     if (impact > 60) {
-      const dmg = (impact - 50) * 0.14;
+      const dmg = (impact - 50) * (def.water ? 0.10 : 0.14);
       damageVehicle(v, w, dmg, null);
-      G.Audio.play("crash");
-      w.addParticle("spark", v.x + fw.x * hl, v.y + fw.y * hl, 5);
+      G.Audio.play(def.water ? "splash" : "crash");
+      if (!def.water) w.addParticle("spark", v.x + fw.x * hl, v.y + fw.y * hl, 5);
+      else w.addParticle("splash", v.x + fw.x * hl, v.y + fw.y * hl, 4);
       if (v.driverKind === "player") G.Camera.shake(U.clamp(impact / 500, 0.1, 0.5));
       if (v.ai) v.ai.blockedT += 0.4;
+
+      // moto : un gros choc éjecte le pilote
+      if (def.bike && impact > 130) {
+        if (v.driverKind === "player") {
+          const pl2 = w.player;
+          pl2.vehicle = null;
+          pl2.enterT = 0.8;
+          pl2.x = v.x - fw.x * 10; pl2.y = v.y - fw.y * 10;
+          M().collideWalker(pl2, pl2.radius);
+          w.hurtPlayer(Math.min(35, impact * 0.09), null);
+          G.Audio.stopEngine();
+          v.driverKind = null; v.throttle = 0; v.steer = 0;
+          w.toast("Éjecté de la moto !");
+        } else if (v.driverKind && v.ai) {
+          const rider = makePed(v.driverKind === "cop" ? "cop" : "civ", v.x - fw.x * 8, v.y - fw.y * 8);
+          if (v.riderLook) rider.look = v.riderLook;
+          rider.state = "knocked"; rider.knockT = 1.8;
+          rider.vx = v.vx * 0.4; rider.vy = v.vy * 0.4;
+          w.peds.push(rider);
+          v.ai = null; v.driverKind = null; v.throttle = 0; v.steer = 0;
+        }
+      }
     }
 
-    // --- collisions véhicule / véhicule ---
+    // --- collisions véhicule / véhicule (jamais entre terre et eau) ---
     for (const o of w.vehicles) {
       if (o === v) continue;
+      if (!!o.def.water !== !!def.water) continue;
       // chaque paire active une seule fois ; les voitures garées ne
       // simulant pas, c'est toujours la voiture en mouvement qui gère.
       const oParked = !o.ai && o.driverKind === null && (o.vx * o.vx + o.vy * o.vy) < 4;
@@ -976,9 +1123,18 @@
       }
     }
 
-    // --- collisions piétons ---
+    // --- collisions piétons (bateaux : seul le nageur est exposé) ---
     const sp = vehicleSpeed(v);
-    if (sp > 50) {
+    if (def.water) {
+      const pl3 = w.player;
+      if (sp > 60 && pl3.swimming && !pl3.dead &&
+          U.dist(v.x, v.y, pl3.x, pl3.y) < def.L * 0.42 + pl3.radius) {
+        w.hurtPlayer(sp * 0.12, null);
+        pl3.x += v.vx * 0.05; pl3.y += v.vy * 0.05;
+        w.addParticle("splash", pl3.x, pl3.y, 5);
+        v.vx *= 0.9; v.vy *= 0.9;
+      }
+    } else if (sp > 50) {
       for (const p of w.peds) {
         if (p.dead || p.state === "knocked") continue;
         const d = U.dist(v.x, v.y, p.x, p.y);
@@ -1072,7 +1228,7 @@
       } else {
         v.steer = ai.escapeSteer || 1;
       }
-      if (ai.escapeT <= 0) { ai.wedgedT = 0; ai.tgtX = null; }
+      if (ai.escapeT <= 0) { ai.wedgedT = 0; ai.tgtX = null; ai.lane = null; }
       return true;
     }
     if (ai.wedgedT > 1.3) {
@@ -1095,6 +1251,43 @@
       return;
     }
 
+    if (ai.mode === "waterRoute") {
+      // trafic nautique : suit sa route de jalons, sans emboutir personne
+      const wps = ai.wps;
+      const wpt = wps[ai.wpi];
+      steerTowards(v, wpt.x, wpt.y, dt);
+      if (U.dist(v.x, v.y, wpt.x, wpt.y) < 60) {
+        if (ai.loop === "loop") ai.wpi = (ai.wpi + 1) % wps.length;
+        else {
+          ai.wpi += ai.dirStep;
+          if (ai.wpi >= wps.length || ai.wpi < 0) {
+            ai.dirStep = -ai.dirStep;
+            ai.wpi = U.clamp(ai.wpi + ai.dirStep * 2, 0, wps.length - 1);
+          }
+        }
+      }
+      let target = ai.cruise;
+      // un autre bateau devant : lever les gaz
+      const bca = Math.cos(v.angle), bsa = Math.sin(v.angle);
+      const scanB = (o) => {
+        if (o === v || !o.def.water) return;
+        const rx = o.x - v.x, ry = o.y - v.y;
+        const proj = rx * bca + ry * bsa, lat = Math.abs(-rx * bsa + ry * bca);
+        if (proj > 10 && proj < 130 && lat < 40) target = Math.min(target, Math.max(0, proj - 55));
+      };
+      if (w.eachVehNear) w.eachVehNear(v.x + bca * 70, v.y + bsa * 70, 110, scanB);
+      // le nageur a priorité
+      const pl = w.player;
+      if (pl.swimming) {
+        const rx = pl.x - v.x, ry = pl.y - v.y;
+        const proj = rx * bca + ry * bsa, lat = Math.abs(-rx * bsa + ry * bca);
+        if (proj > 0 && proj < 140 && lat < 34) target = 0;
+      }
+      const spB = vehicleSpeed(v);
+      v.throttle = spB < target ? 0.65 : (spB > target + 25 ? -0.5 : 0);
+      return;
+    }
+
     if (ai.mode === "route") {
       // véhicule scripté : suit une liste de jalons routiers (missions)
       if (updateStuckDetector(v, ai, dt)) return;
@@ -1111,11 +1304,22 @@
         return;
       }
       ai.waiting = false;
-      const wp = ai.wps[ai.wpi];
-      steerTowards(v, wp.x, wp.y, dt);
-      if (U.dist(v.x, v.y, wp.x, wp.y) < 42) ai.wpi++;
+      // jalons dépassés : avancer l'index (rayon large — un jalon raté de
+      // peu ne doit jamais faire tourner le van en rond autour de lui)
+      while (ai.wpi < ai.wps.length &&
+             U.dist(v.x, v.y, ai.wps[ai.wpi].x, ai.wps[ai.wpi].y) < 54) ai.wpi++;
+      if (ai.wpi >= ai.wps.length) return;
       const sp2 = vehicleSpeed(v);
-      v.throttle = sp2 < (ai.cruise || 95) ? 0.7 : 0;
+      // poursuite pure le long du chemin : le point visé glisse toujours
+      // devant, un objectif fixe pouvait piéger le van en orbite.
+      const look2 = U.clamp(40 + sp2 * 0.5, 50, 140);
+      const pt2 = pursuitPoint(v, ai.wps, look2, ai.wpi);
+      steerTowards(v, pt2.x, pt2.y, dt);
+      // manœuvre serrée : ralentir le temps de se réaligner
+      const mis = Math.abs(U.angleDiff(v.angle, Math.atan2(pt2.y - v.y, pt2.x - v.x)));
+      const want = mis > 1.15 ? 42 : (ai.cruise || 95);
+      // presque à l'arrêt (bousculé, coincé) : pousser fort pour se dégager
+      v.throttle = sp2 < 18 ? 1 : (sp2 < want ? 0.7 : (sp2 > want + 25 ? -0.5 : 0));
       return;
     }
 
@@ -1128,6 +1332,28 @@
         return;
       }
       const d = U.dist(v.x, v.y, t.x, t.y);
+
+      // charges successives : après ~2 s à gratter au contact, on recule
+      // prendre de l'élan au lieu de pousser la cible indéfiniment (sinon
+      // le bélier cloue le van sur place sans jamais percuter).
+      if (ai.backT > 0) {
+        ai.backT -= dt;
+        v.throttle = -0.9;
+        v.steer = ai.backSteer || 1;
+        return;
+      }
+      if (d < 130 && vehicleSpeed(v) < 25) {
+        ai.grindT = (ai.grindT || 0) + dt;
+        if (ai.grindT > 2) {
+          ai.grindT = 0;
+          ai.backT = 1.3;
+          ai.backSteer = Math.random() < 0.5 ? -1 : 1;
+          return;
+        }
+      } else {
+        ai.grindT = Math.max(0, (ai.grindT || 0) - dt);
+      }
+
       const lead = U.clamp(d / 300, 0, 1);
       steerTowards(v, t.x + (t.vx || 0) * lead, t.y + (t.vy || 0) * lead, dt);
       v.throttle = 1;
@@ -1154,7 +1380,7 @@
       const tx = rx + (seen ? src.vx * lead : 0), ty = ry + (seen ? src.vy * lead : 0);
       steerTowards(v, tx, ty, dt);
 
-      if (!seen && dTgt < 60) {
+      if (!seen && dTgt < 90) {
         // arrivée sur la dernière position sans visuel : reprend une
         // patrouille normale (sera re-recrutée si on l'aperçoit à nouveau)
         ai.mode = "cruise"; ai.cruise = 130; ai.tgtX = null; ai.blockedT = 0;
@@ -1187,13 +1413,24 @@
     // tourne sur elle-même indéfiniment sous le seul couple des chocs.
     if (updateStuckDetector(v, ai, dt)) return;
 
-    // --- croisière sur les voies ---
-    if (ai.tgtX == null) pickNextLaneTarget(v, w);
-    if (U.dist(v.x, v.y, ai.tgtX, ai.tgtY) < 26) pickNextLaneTarget(v, w);
+    // ================== CROISIÈRE (trafic civil) ==================
+    // File de jalons de voie (3 d'avance) + poursuite pure : trajectoire
+    // lissée sans zigzag, freinage anticipé avant les virages, priorité
+    // aux carrefours, allure imposée par le véhicule de devant.
 
-    // écart latéral temporaire pour contourner une épave
+    if (!ai.lane) ai.lane = [];
+    while (ai.lane.length && U.dist(v.x, v.y, ai.lane[0].x, ai.lane[0].y) < 34) ai.lane.shift();
+    let guard = 0;
+    while (ai.lane.length < 3 && guard++ < 5) { if (!extendLane(v)) break; }
+    if (!ai.lane.length) { v.throttle = 0; v.steer = 0; return; }
+
+    const sp = vehicleSpeed(v);
+
+    // point de poursuite sur la polyligne, avec écart d'évitement éventuel
     ai.swerveT = Math.max(0, (ai.swerveT || 0) - dt);
-    let tgtX = ai.tgtX, tgtY = ai.tgtY;
+    const look = U.clamp(36 + sp * 0.5, 44, 150);
+    const pt = pursuitPoint(v, ai.lane, look);
+    let tgtX = pt.x, tgtY = pt.y;
     if (ai.swerveT > 0) {
       const perp = v.angle + Math.PI / 2;
       tgtX += Math.cos(perp) * 34 * ai.swerveDir;
@@ -1203,26 +1440,36 @@
 
     const cruise = ai.panicT > 0 ? 240 : ai.cruise;
     ai.panicT = Math.max(0, (ai.panicT || 0) - dt);
-    const sp = vehicleSpeed(v);
     const ca = Math.cos(v.angle), sa = Math.sin(v.angle);
     let targetSpd = cruise;
+
+    // — anticiper le virage : on freine AVANT de tourner —
+    if (ai.lane.length >= 2) {
+      const a0 = Math.atan2(ai.lane[0].y - v.y, ai.lane[0].x - v.x);
+      const a1 = Math.atan2(ai.lane[1].y - ai.lane[0].y, ai.lane[1].x - ai.lane[0].x);
+      if (Math.abs(U.angleDiff(a0, a1)) > 0.5) {
+        const dTurn = U.dist(v.x, v.y, ai.lane[0].x, ai.lane[0].y);
+        targetSpd = Math.min(targetSpd, 60 + dTurn * 0.85);
+      }
+    }
 
     // — suivi de file : la voiture devant dicte l'allure —
     let lead = null, leadProj = 1e9;
     const scan = (o) => {
-      if (o === v) return;
+      if (o === v || o.def.water) return;
       const rx = o.x - v.x, ry = o.y - v.y;
       const proj = rx * ca + ry * sa;          // distance devant
       const lat = Math.abs(-rx * sa + ry * ca); // écart latéral
-      if (proj > 10 && proj < 150 && lat < 30 && proj < leadProj) { lead = o; leadProj = proj; }
+      if (proj > 10 && proj < 165 && lat < 30 && proj < leadProj) { lead = o; leadProj = proj; }
     };
-    if (w.eachVehNear) w.eachVehNear(v.x + ca * 80, v.y + sa * 80, 110, scan);
+    if (w.eachVehNear) w.eachVehNear(v.x + ca * 85, v.y + sa * 85, 115, scan);
     else for (const o of w.vehicles) scan(o);
 
     if (lead) {
       const leadSpd = lead.vx * ca + lead.vy * sa;
       const gap = leadProj - (v.def.L + lead.def.L) * 0.5;
-      targetSpd = Math.min(targetSpd, Math.max(0, leadSpd + (gap - 30) * 1.6));
+      // distance de sécurité qui grandit avec la vitesse
+      targetSpd = Math.min(targetSpd, Math.max(0, leadSpd + (gap - 26 - sp * 0.12) * 1.6));
       // épave ou véhicule à l'arrêt : tenter un déboîtement
       const leadStopped = Math.abs(leadSpd) < 14 && (lead.wreck || !lead.ai || lead.driverKind === null);
       if (leadStopped && gap < 95 && gap > 20 && ai.swerveT <= 0 && ai.panicT <= 0) {
@@ -1238,10 +1485,10 @@
 
     // — piéton ou joueur sur la trajectoire —
     if (targetSpd > 0) {
-      const lookAhead = 40 + sp * 0.45;
+      const lookAhead = 40 + sp * 0.5;
       const px = v.x + ca * lookAhead, py = v.y + sa * lookAhead;
-      const pl = w.player;
-      if (!pl.vehicle && U.dist2(px, py, pl.x, pl.y) < 36 * 36) targetSpd = 0;
+      const plr = w.player;
+      if (!plr.vehicle && !plr.swimming && U.dist2(px, py, plr.x, plr.y) < 36 * 36) targetSpd = 0;
       else if (w.eachPedNear) {
         w.eachPedNear(px, py, 30, (p) => {
           if (!p.dead && U.dist2(px, py, p.x, p.y) < 26 * 26) targetSpd = 0;
@@ -1249,78 +1496,124 @@
       }
     }
 
-    // — lever le pied aux intersections —
+    // — carrefours : lever le pied, et céder à qui est déjà engagé —
     if (ai.panicT <= 0) {
-      const ttx = Math.floor(ai.tgtX / 48), tty = Math.floor(ai.tgtY / 48);
-      const m = Mp.laneMaskAt(ttx, tty);
-      const isCross = (m & (Mp.LN | Mp.LS)) && (m & (Mp.LE | Mp.LW));
-      if (isCross) targetSpd = Math.min(targetSpd, 95);
+      let crossPt = null;
+      for (let i = 0; i < Math.min(2, ai.lane.length); i++) {
+        if (ai.lane[i].cross) { crossPt = ai.lane[i]; break; }
+      }
+      if (crossPt) {
+        const dMe = U.dist(v.x, v.y, crossPt.x, crossPt.y);
+        if (dMe < 150) {
+          targetSpd = Math.min(targetSpd, 95);
+          let mustYield = false;
+          if (w.eachVehNear) w.eachVehNear(crossPt.x, crossPt.y, 90, (o) => {
+            if (o === v || o.wreck || o.def.water) return;
+            const oSp = vehicleSpeed(o);
+            const dO = U.dist(o.x, o.y, crossPt.x, crossPt.y);
+            // déjà engagé dans le carrefour, ou prioritaire (ordre stable)
+            if (dO < 58 && oSp > 14) mustYield = true;
+            else if (dO < 130 && oSp > 40 && o.id < v.id) mustYield = true;
+          });
+          if (mustYield && dMe > 44) {
+            targetSpd = Math.min(targetSpd, dMe < 80 ? 0 : 40);
+            ai.yieldT = (ai.yieldT || 0) + dt;
+            if (ai.yieldT > 3.2) targetSpd = Math.max(targetSpd, 55); // anti-interblocage
+          } else ai.yieldT = 0;
+        }
+      }
     }
 
-    // — accélérateur / frein + gestion de blocage —
-    if (targetSpd < 12 && sp < 25) {
-      v.throttle = 0;
+    // — accélérateur / frein proportionnels + gestion de blocage —
+    if (sp < 15 && targetSpd > 25) {
       ai.blockedT += dt;
-      if (ai.blockedT > 1.6 && !ai.horned && U.dist2(v.x, v.y, w.player.x, w.player.y) < 600 * 600) {
-        ai.horned = true;
-        G.Audio.play("horn");
-      }
-      if (ai.blockedT > 4) {
-        v.throttle = -0.7; v.steer = 0.8;
-        if (ai.blockedT > 5.2) { ai.blockedT = 0; ai.horned = false; pickNextLaneTarget(v, w); }
-      }
-    } else {
-      if (ai.blockedT > 0 && sp > 40) { ai.blockedT = 0; ai.horned = false; }
-      v.throttle = sp < targetSpd ? 0.75 : (sp > targetSpd + 30 ? -0.6 : 0);
+    } else if (sp > 40) {
+      ai.blockedT = 0; ai.horned = false;
     }
+    if (ai.blockedT > 1.8 && !ai.horned && U.dist2(v.x, v.y, w.player.x, w.player.y) < 600 * 600) {
+      ai.horned = true;
+      G.Audio.horn(v.type);
+    }
+    if (ai.blockedT > 4) {
+      v.throttle = -0.7; v.steer = 0.8;
+      if (ai.blockedT > 5.2) { ai.blockedT = 0; ai.horned = false; ai.lane = null; }
+      return;
+    }
+    const err = targetSpd - sp;
+    v.throttle = U.clamp(err / 55, -1, 0.8);
+    if (targetSpd < 8 && sp < 14) v.throttle = 0;
   }
 
+  /** Volant lissé : gain adapté à la vitesse + rotation bornée par frame
+   *  (fini les zigzags du trafic à haute vitesse). */
   function steerTowards(v, tx, ty, dt) {
     const desired = Math.atan2(ty - v.y, tx - v.x);
     const diff = U.angleDiff(v.angle, desired);
-    v.steer = U.clamp(diff * 2.4, -1, 1);
-    // marche arrière : inverser le volant
+    const sp = vehicleSpeed(v);
+    const gain = 2.6 * U.clamp(150 / (sp + 70), 0.55, 1.7);
+    let want = U.clamp(diff * gain, -1, 1);
     const fSpd = v.vx * Math.cos(v.angle) + v.vy * Math.sin(v.angle);
-    if (fSpd < -5) v.steer = -v.steer;
+    if (fSpd < -5) want = -want; // marche arrière : volant inversé
+    const rate = 9 * dt;
+    v.steer = U.clamp(v.steer + U.clamp(want - v.steer, -rate, rate), -1, 1);
   }
 
-  function pickNextLaneTarget(v, w) {
+  /** Ajoute un jalon de voie au bout de la file (suit les masques de
+   *  circulation, préfère aller tout droit, jamais de demi-tour). */
+  function extendLane(v) {
     const Mp = M(), T = Mp.T;
     const ai = v.ai;
-    const tx = Math.floor(v.x / T), ty = Math.floor(v.y / T);
+    let tx, ty, dir;
+    if (ai.lane.length) {
+      const last = ai.lane[ai.lane.length - 1];
+      tx = last.tx; ty = last.ty; dir = last.dir;
+    } else {
+      tx = Math.floor(v.x / T); ty = Math.floor(v.y / T); dir = ai.dir || null;
+    }
     const mask = Mp.laneMaskAt(tx, ty);
-
-    // direction actuelle dominante
-    const dirs = Mp.DIRS;
-    let curDir = ai.dir || null;
     const choices = [];
-    for (const d of dirs) {
+    for (const d of Mp.DIRS) {
       if (!(mask & d.bit)) continue;
-      if (curDir && d.dx === -curDir.dx && d.dy === -curDir.dy) continue; // pas de demi-tour
-      // la tuile suivante doit rester une route
+      if (dir && d.dx === -dir.dx && d.dy === -dir.dy) continue; // pas de demi-tour
       if (!Mp.isRoad(tx + d.dx, ty + d.dy)) continue;
-      let weight = 1;
-      if (curDir && d.dx === curDir.dx && d.dy === curDir.dy) weight = 4; // tout droit de préférence
-      choices.push({ d, weight });
+      choices.push({ d, weight: (dir && d.dx === dir.dx && d.dy === dir.dy) ? 4 : 1 });
     }
     if (!choices.length) {
-      // hors voie (après un carambolage) : rejoindre la voie la plus proche
+      if (ai.lane.length) return false;
+      // hors voie (après un carambolage) : rejoindre la route la plus proche
       const lt = Mp.nearestRoadTile(v.x, v.y, 5);
-      if (lt >= 0) {
-        ai.tgtX = (lt % Mp.MW + 0.5) * T;
-        ai.tgtY = ((lt / Mp.MW | 0) + 0.5) * T;
-        ai.dir = null;
-        return;
-      }
-      ai.tgtX = v.x; ai.tgtY = v.y;
-      return;
+      if (lt < 0) return false;
+      const ntx = lt % Mp.MW, nty = (lt / Mp.MW) | 0;
+      ai.lane.push({ x: (ntx + 0.5) * T, y: (nty + 0.5) * T, tx: ntx, ty: nty, dir: null, cross: false });
+      ai.dir = null;
+      return true;
     }
     let total = 0; for (const c of choices) total += c.weight;
     let r = Math.random() * total, chosen = choices[0];
     for (const c of choices) { r -= c.weight; if (r <= 0) { chosen = c; break; } }
+    const ntx = tx + chosen.d.dx, nty = ty + chosen.d.dy;
+    const m2 = Mp.laneMaskAt(ntx, nty);
+    const cross = ((m2 & (Mp.LN | Mp.LS)) !== 0) && ((m2 & (Mp.LE | Mp.LW)) !== 0);
+    ai.lane.push({ x: (ntx + 0.5) * T, y: (nty + 0.5) * T, tx: ntx, ty: nty, dir: chosen.d, cross });
     ai.dir = chosen.d;
-    ai.tgtX = (tx + chosen.d.dx + 0.5) * T;
-    ai.tgtY = (ty + chosen.d.dy + 0.5) * T;
+    return true;
+  }
+
+  /** Point de poursuite : à `look` px devant, le long de la polyligne
+   *  [position → jalon start → jalon start+1 → …]. */
+  function pursuitPoint(v, lane, look, start) {
+    let px = v.x, py = v.y, remain = look;
+    for (let i = start || 0; i < lane.length; i++) {
+      const dx = lane[i].x - px, dy = lane[i].y - py;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= remain) {
+        const t = remain / (d || 1);
+        return { x: px + dx * t, y: py + dy * t };
+      }
+      remain -= d;
+      px = lane[i].x; py = lane[i].y;
+    }
+    return { x: px, y: py };
   }
 
   /* ---------- rendu véhicule ---------- */
@@ -1344,14 +1637,17 @@
   }
 
   function drawVehicle(ctx, v, w) {
+    // un bateau qui passe sous un pont du canal disparaît sous le tablier
+    if (v.def.water && M().isUnderBridge(v.x, v.y)) return;
+
     ctx.save();
     ctx.translate(v.x, v.y);
-    // ombre
+    // ombre (sur l'eau : reflet sombre plus serré)
     ctx.save();
     ctx.rotate(v.angle);
-    ctx.fillStyle = "rgba(10,8,20,0.30)";
+    ctx.fillStyle = v.def.water ? "rgba(6,20,26,0.35)" : "rgba(10,8,20,0.30)";
     ctx.beginPath();
-    ctx.ellipse(2, 3, v.def.L * 0.52, v.def.W * 0.62, 0, 0, U.TAU);
+    ctx.ellipse(2, 3, v.def.L * (v.def.water ? 0.46 : 0.52), v.def.W * (v.def.water ? 0.5 : 0.62), 0, 0, U.TAU);
     ctx.fill();
     ctx.restore();
 
@@ -1359,11 +1655,28 @@
     const spr = v.wreck ? wreckSprite(v.type, v.color) : S.vehicleSprite(v.type, v.color);
     ctx.drawImage(spr, 0, 0, spr.width, spr.height, -spr.lw / 2, -spr.lh / 2, spr.lw, spr.lh);
 
+    // pilote visible sur une moto ou un bateau
+    if ((v.def.bike || v.def.water) && v.driverKind && !v.wreck) {
+      if (!v.riderLook && v.driverKind !== "player")
+        v.riderLook = S.pedLook(v.driverKind === "cop" ? "cop" : "civ");
+      const look = v.driverKind === "player" ? w.player.look : v.riderLook;
+      if (look) {
+        ctx.save();
+        ctx.translate(v.def.bike ? -3 : -v.def.L * 0.12, 0);
+        S.drawPed(ctx, look, 0, 0, "sit", { scale: v.def.bike ? 0.82 : 0.9, noShadow: true });
+        ctx.restore();
+      }
+    }
+
     // feux stop
-    if (v.braking && !v.wreck) {
+    if (v.braking && !v.wreck && !v.def.water) {
       ctx.fillStyle = "rgba(255,60,60,0.55)";
-      ctx.beginPath(); ctx.arc(-v.def.L / 2 + 1, -v.def.W / 2 + 4, 3.6, 0, U.TAU); ctx.fill();
-      ctx.beginPath(); ctx.arc(-v.def.L / 2 + 1, v.def.W / 2 - 4, 3.6, 0, U.TAU); ctx.fill();
+      if (v.def.bike) {
+        ctx.beginPath(); ctx.arc(-v.def.L / 2 + 3, 0, 2.8, 0, U.TAU); ctx.fill();
+      } else {
+        ctx.beginPath(); ctx.arc(-v.def.L / 2 + 1, -v.def.W / 2 + 4, 3.6, 0, U.TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(-v.def.L / 2 + 1, v.def.W / 2 - 4, 3.6, 0, U.TAU); ctx.fill();
+      }
     }
 
     if (v.type === "police" && !v.wreck && (v.siren || v.ai)) {
@@ -1626,6 +1939,14 @@
         p.maxLife = p.life = 0.5 + Math.random() * 0.5; p.size = 2.5 + Math.random() * 3;
         p.spin = Math.random() * U.TAU;
         break;
+      case "wake":
+        // écume de sillage : s'étale et s'estompe sur place
+        p.maxLife = p.life = 0.7 + Math.random() * 0.5; p.size = 3 + Math.random() * 3;
+        break;
+      case "splash":
+        p.vx = (Math.random() - 0.5) * 130; p.vy = (Math.random() - 0.5) * 130;
+        p.maxLife = p.life = 0.35 + Math.random() * 0.25; p.size = 2.2 + Math.random() * 1.6;
+        break;
     }
     return p;
   }
@@ -1680,6 +2001,15 @@
         ctx.fillStyle = "rgba(30,26,34," + a + ")";
         ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.7);
         ctx.restore();
+        break;
+      case "wake":
+        ctx.strokeStyle = "rgba(230,245,248," + (0.4 * a) + ")";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size + (1 - a) * 14, 0, U.TAU); ctx.stroke();
+        break;
+      case "splash":
+        ctx.fillStyle = "rgba(215,240,246," + (0.75 * a) + ")";
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * a + 0.6, 0, U.TAU); ctx.fill();
         break;
     }
   }

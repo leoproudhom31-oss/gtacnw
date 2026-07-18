@@ -105,6 +105,34 @@
       W.vehicles.push(v);
     }
 
+    // bateaux amarrés (volables) le long du canal, des jetées et de la plage
+    for (const s of Mp.boatSpawns) {
+      const v = E().makeVehicle(s.type, s.x, s.y, s.a, s.c);
+      v.parked = true;
+      W.vehicles.push(v);
+    }
+
+    // trafic nautique : pilotes PNJ sur leurs routes d'eau
+    for (const r of Mp.boatRoutes) {
+      const v = E().makeVehicle(r.type, r.wps[0].x, r.wps[0].y, 0, r.c);
+      v.ai = { mode: "waterRoute", wps: r.wps, wpi: 1, dirStep: 1,
+               loop: r.mode, cruise: r.cruise, blockedT: 0 };
+      v.driverKind = "civ";
+      v.noDespawnV = true;
+      W.vehicles.push(v);
+    }
+
+    // baigneurs assis sur leurs serviettes, au Croissant de Sable
+    for (let i = 0; i < Mp.beachSeats.length; i += 2) {
+      const seat = Mp.beachSeats[i];
+      const p = E().makePed("civ", seat.x, seat.y);
+      p.state = "dummy";
+      p.activity = "sit";
+      p.angle = seat.a - Math.PI / 2;
+      p.noDespawn = true;
+      W.peds.push(p);
+    }
+
     // pickups de la carte
     for (const p of Mp.pickupSpawns) {
       W.pickups.push(E().makePickup(p.kind, p.x, p.y, p.amount));
@@ -353,8 +381,14 @@
   };
 
   W.onEnterVehicle = function (v) {
-    G.HUD.tutorial("Conduite : haut/bas = accélérer/freiner, gauche/droite = tourner, ESPACE = frein à main, E = descendre.", 6);
-    W.onEnterVehicle = function () {}; // une seule fois
+    if (v.def && v.def.name) W.toast(v.def.name, 1.6);
+    if (v.def && v.def.water && !W._boatTuto) {
+      W._boatTuto = true;
+      G.HUD.tutorial("Navigation : haut/bas = gaz/frein moteur, gauche/droite = barre. Pas de frein à main sur l'eau !", 6);
+    } else if (!W._driveTuto) {
+      W._driveTuto = true;
+      G.HUD.tutorial("Conduite : haut/bas = accélérer/freiner, gauche/droite = tourner, ESPACE = frein à main, E = descendre.", 6);
+    }
   };
 
   W.onWasted = function () {
@@ -546,6 +580,7 @@
     pl.dead = false;
     pl.busted = false;
     pl.vehicle = null;
+    pl.swimming = false;
     pl.money = Math.max(0, pl.money - (where === "hospital" ? 150 : 100));
     W.wanted.heat = 0;
     refreshWantedLevel();
@@ -568,7 +603,9 @@
      ========================================================= */
 
   const TRAFFIC_TARGET = 13, PED_TARGET = 24;
-  const CIV_TYPES = ["sedan", "sedan", "taxi", "taxi", "van", "pickup", "sport"];
+  const CIV_TYPES = ["sedan", "sedan", "taxi", "taxi", "van", "pickup", "sport", "bike", "bike"];
+  // allure de croisière par type : le trafic roule à des vitesses crédibles
+  const CRUISE_BY_TYPE = { sedan: 92, taxi: 106, van: 74, pickup: 84, sport: 128, bike: 112, police: 96 };
 
   function maintainCrowd(dt) {
     W._spawnT -= dt;
@@ -584,7 +621,7 @@
     for (let i = W.vehicles.length - 1; i >= 0; i--) {
       const v = W.vehicles[i];
       const d = U.dist(v.x, v.y, pl.x, pl.y);
-      if (d > 1500 && v.driverKind !== "player" && !v.missionTag) {
+      if (d > 1500 && v.driverKind !== "player" && !v.missionTag && !v.noDespawnV) {
         // trafic, épaves et voitures volées puis abandonnées ; les
         // voitures garées d'origine restent en place
         if (v.ai || v.wreck || (!v.parked && v.driverKind === null)) {
@@ -617,7 +654,8 @@
           const type = isPolice ? "police" : U.pick(rng, CIV_TYPES);
           const dir = { [G.Map.LN]: -Math.PI / 2, [G.Map.LS]: Math.PI / 2, [G.Map.LE]: 0, [G.Map.LW]: Math.PI }[lt.mask];
           const v = E().makeVehicle(type, x, y, dir);
-          v.ai = { mode: "cruise", cruise: 85 + rng() * 50, blockedT: 0, tgtX: null, tgtY: null, dir: null, panicT: 0 };
+          v.ai = { mode: "cruise", cruise: (CRUISE_BY_TYPE[type] || 90) * (0.9 + rng() * 0.25),
+                   blockedT: 0, tgtX: null, tgtY: null, dir: null, panicT: 0 };
           v.driverKind = isPolice ? "cop" : "civ";
           const sp = 60;
           v.vx = Math.cos(dir) * sp; v.vy = Math.sin(dir) * sp;
@@ -1039,6 +1077,29 @@
       ctx.moveTo(t.x - r - 5, t.y); ctx.lineTo(t.x - r + 3, t.y);
       ctx.moveTo(t.x + r + 5, t.y); ctx.lineTo(t.x + r - 3, t.y);
       ctx.stroke();
+    }
+
+    // aide contextuelle : échelle de quai à portée quand on nage
+    if (pl.swimming && !pl.dead && W.state === "play") {
+      let lad = null, ld = 110;
+      for (const l of G.Map.ladders) {
+        const d = U.dist(pl.x, pl.y, l.waterX, l.waterY);
+        if (d < ld) { lad = l; ld = d; }
+      }
+      if (lad) {
+        ctx.save();
+        ctx.translate(lad.x, lad.y);
+        ctx.rotate(-G.Camera.rot);
+        ctx.fillStyle = "rgba(18,14,28,0.85)";
+        ctx.beginPath(); ctx.arc(0, -16, 10, 0, U.TAU); ctx.fill();
+        ctx.strokeStyle = "#7ad7ff"; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(0, -16, 10, 0, U.TAU); ctx.stroke();
+        ctx.fillStyle = "#7ad7ff";
+        ctx.font = "bold 11px sans-serif";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("E", 0, -15);
+        ctx.restore();
+      }
     }
 
     // aide contextuelle : monter en voiture
