@@ -10,6 +10,12 @@
 
   const SAVE_KEY = "jadeharbor_save_v1";
 
+  // chaleur nécessaire par étoile de recherche. Sous une étoile, la
+  // chaleur des petits délits redescend d'elle-même (voir updateWanted) :
+  // un accrochage isolé n'attire donc plus la police.
+  const STAR_HEAT = 40;
+  const HEAT_DECAY = 16; // points de chaleur perdus par seconde au calme
+
   const W = {
     state: "title",     // title | play | dead | busted
     time: 0,
@@ -198,11 +204,10 @@
       for (const v of W.vehicles) {
         if (v.ai && v.ai.mode === "cruise" && U.dist2(v.x, v.y, x, y) < r * r) v.ai.panicT = 5;
       }
-      // témoin policier ?
-      if (copNearby(x, y, r + 120)) {
-        if (W.wanted.heat < 35) W.setWanted(1);
-        else W.addHeat(6, true);
-      }
+      // un flic doit VOIR le tireur (ligne de vue) pour réagir — et un
+      // seul coup n'inquiète plus la police : la chaleur s'accumule,
+      // il faut une vraie fusillade pour décrocher une étoile.
+      if (copSees(x, y, 500)) W.addHeat(18, true);
     }
   };
 
@@ -216,43 +221,60 @@
     return false;
   }
 
-  // un crime vient d'être commis : les civils qui l'ont vu deviennent témoins
+  // comme copNearby mais exige une ligne de vue dégagée
+  function copSees(x, y, r) {
+    const r2 = r * r;
+    for (const p of W.peds) {
+      if (!p.dead && p.kind === "cop" && U.dist2(p.x, p.y, x, y) < r2 &&
+          G.Map.lineOfSight(p.x, p.y, x, y)) return true;
+    }
+    for (const v of W.vehicles) {
+      if (v.type === "police" && v.ai && !v.wreck && U.dist2(v.x, v.y, x, y) < r2 &&
+          G.Map.lineOfSight(v.x, v.y, x, y)) return true;
+    }
+    return false;
+  }
+
+  // un crime vient d'être commis : les civils qui l'ont vu deviennent
+  // témoins. Renvoie le nombre de témoins trouvés (0 = personne n'a vu).
   W.crimeWitnessed = function (x, y) {
     let n = 0;
     for (const p of W.peds) {
       if (n >= 2) break;
       if (p.dead || p.kind !== "civ" || p.staticNpc || p.witness) continue;
-      if (U.dist2(p.x, p.y, x, y) > 260 * 260) continue;
+      if (U.dist2(p.x, p.y, x, y) > 220 * 220) continue;
       if (!G.Map.lineOfSight(p.x, p.y, x, y)) continue;
       p.witness = true;
-      p.phoneT = 3 + Math.random() * 2;
+      p.phoneT = 4 + Math.random() * 3; // délai d'appel : on peut le rattraper
       p.state = "flee";
       p.threatX = x; p.threatY = y;
       p.activity = null; p.actT = 0;
       n++;
     }
+    return n;
   };
 
   W.onWitnessReport = function (p) {
-    if (W.wanted.heat < 35) W.setWanted(1);
-    else W.addHeat(14, true);
+    // un témoin ajoute de la chaleur mais ne déclenche plus une étoile
+    // instantanée : plusieurs signalements (ou un vrai crime) sont requis.
+    W.addHeat(26, true);
     W.toast("Un témoin a alerté la police !");
   };
 
   W.addHeat = function (amount, forceSeen) {
-    if (!forceSeen && !copNearby(W.player.x, W.player.y, 520)) amount *= 0.4;
-    W.wanted.heat = U.clamp(W.wanted.heat + amount, 0, 5 * 35 + 30);
+    if (!forceSeen && !copNearby(W.player.x, W.player.y, 520)) amount *= 0.35;
+    W.wanted.heat = U.clamp(W.wanted.heat + amount, 0, 5 * STAR_HEAT + 20);
     refreshWantedLevel();
   };
 
   W.setWanted = function (n) {
-    W.wanted.heat = n * 35;
+    W.wanted.heat = n * STAR_HEAT;
     refreshWantedLevel();
   };
 
   function refreshWantedLevel() {
     const prev = W.wanted.level;
-    const lvl = Math.min(5, Math.floor(W.wanted.heat / 35));
+    const lvl = Math.min(5, Math.floor(W.wanted.heat / STAR_HEAT));
     if (lvl > prev) {
       G.Audio.play("star");
       G.Camera.shake(0.1);
@@ -279,10 +301,15 @@
   // ---- événements de gameplay ----
   W.onPedKilled = function (p, srcKind) {
     if (srcKind === "player" || srcKind === "playercar") {
-      W.crimeWitnessed(p.x, p.y);
-      if (p.kind === "civ") W.addHeat(26, false);
-      else if (p.kind === "cop") W.addHeat(40, true);
-      else W.addHeat(8, false);
+      if (p.kind === "civ") {
+        // vu par quelqu'un → crime grave (≈ 1 étoile) ; personne autour →
+        // presque rien, on peut s'en tirer discrètement
+        const seen = W.crimeWitnessed(p.x, p.y);
+        if (seen > 0) W.addHeat(42, true);
+        else W.addHeat(8, false);
+      }
+      else if (p.kind === "cop") W.addHeat(55, true);
+      else W.addHeat(6, false); // un membre de gang : la police s'en moque presque
       // les gangsters lâchent des billets
       if ((p.kind === "shark" || p.kind === "lotus") && Math.random() < 0.6) {
         W.pickups.push(E().makePickup("cash", p.x + 8, p.y + 4, 10 + (Math.random() * 30 | 0)));
@@ -291,24 +318,28 @@
   };
 
   W.onPlayerShotPed = function (p) {
-    if (p.kind === "civ") W.addHeat(9, false);
+    if (p.kind === "civ") W.addHeat(14, false);
   };
 
   W.onPlayerAttack = function (p) {
-    if (p.kind === "civ" || p.kind === "wu") W.addHeat(5, false);
-    if (p.kind === "cop") W.addHeat(22, true);
+    // une bousculade / un coup isolé n'est presque rien et se dissipe vite
+    if (p.kind === "civ" || p.kind === "wu") W.addHeat(2, false);
+    if (p.kind === "cop") W.addHeat(24, true);
   };
 
   W.onPlayerRanOver = function (p) {
-    if (p.kind === "civ") { W.addHeat(14, false); W.crimeWitnessed(p.x, p.y); }
-    if (p.kind === "cop") W.addHeat(30, true);
+    if (p.kind === "civ") {
+      const seen = W.crimeWitnessed(p.x, p.y);
+      W.addHeat(seen > 0 ? 22 : 8, seen > 0);
+    }
+    if (p.kind === "cop") W.addHeat(36, true);
   };
 
   W.onVehicleExploded = function (v) {
     if (v.type === "police" && W.wanted.level > 0 && v.lastDamager === "player") {
       // la signature Chinatown Wars : neutraliser une patrouille SOI-MÊME
       // fait retomber la pression — pas leurs accidents tout seuls
-      W.wanted.heat = Math.max(0, W.wanted.heat - 38);
+      W.wanted.heat = Math.max(0, W.wanted.heat - STAR_HEAT);
       refreshWantedLevel();
       if (W.wanted.level === 0) W.wanted.unseenT = 99;
       W.toast("Patrouille neutralisée : la pression retombe !");
@@ -659,7 +690,13 @@
     const pl = W.player;
     wd.lastSeenT += dt;
 
-    if (wd.level <= 0) { wd.unseenT = 0; wd.evadeT = 0; wd.bustT = 0; return; }
+    if (wd.level <= 0) {
+      wd.unseenT = 0; wd.evadeT = 0; wd.bustT = 0;
+      // décroissance des délits mineurs : la chaleur sous une étoile
+      // ne s'accumule plus indéfiniment, elle retombe au calme.
+      if (wd.heat > 0) wd.heat = Math.max(0, wd.heat - HEAT_DECAY * dt);
+      return;
+    }
 
     // le joueur est-il vu ?
     let seen = false;
@@ -684,11 +721,11 @@
     }
     else {
       wd.unseenT += dt;
-      if (wd.unseenT > 3.5) {
+      if (wd.unseenT > 3.2) {
         wd.evadeT += dt;
-        if (wd.evadeT > 4.5) {
+        if (wd.evadeT > 4) {
           wd.evadeT = 0;
-          wd.heat = Math.max(0, wd.heat - 35);
+          wd.heat = Math.max(0, wd.heat - STAR_HEAT);
           refreshWantedLevel();
           if (wd.level === 0) W.toast("Tu as semé la police."); // standDown() a déjà tout rangé
         }

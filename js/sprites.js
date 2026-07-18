@@ -146,7 +146,7 @@
 
   /* ---------- cuisson des frames ---------- */
 
-  const SS = 2;              // super-échantillonnage
+  const SS = 3;              // super-échantillonnage (netteté HiDPI + zoom)
   const FR = 64;             // taille logique d'une frame
   const frameCache = new Map();
   const FRAME_CACHE_MAX = 900;
@@ -181,6 +181,23 @@
     if (!noStroke) { x.strokeStyle = INK; x.lineWidth = 1.25; x.stroke(); }
   }
 
+  // ellipse en dôme : dégradé radial (lumière en haut-gauche) donnant du
+  // volume, à partir d'une couleur de base — remplace les aplats plats.
+  // tint décale l'ensemble du dôme (négatif = plus sombre) pour distinguer
+  // p.ex. une manche du torse tout en gardant le relief.
+  function Er(x, cx, cy, rx, ry, rot, base, noStroke, lw, tint) {
+    tint = tint || 0;
+    const lit = U.shade(base, 0.26 + tint), mid = tint ? U.shade(base, tint) : base, sh = U.shade(base, -0.32 + tint);
+    x.save();
+    x.translate(cx, cy); x.rotate(rot || 0);
+    const g = x.createRadialGradient(-rx * 0.34, -ry * 0.42, ry * 0.12, 0, ry * 0.15, Math.max(rx, ry) * 1.3);
+    g.addColorStop(0, lit); g.addColorStop(0.52, mid); g.addColorStop(1, sh);
+    x.fillStyle = g;
+    x.beginPath(); x.ellipse(0, 0, rx, ry, 0, 0, U.TAU); x.fill();
+    if (!noStroke) { x.strokeStyle = INK; x.lineWidth = lw || 1.3; x.stroke(); }
+    x.restore();
+  }
+
   function bakePed(x, L, pose, fi, weapon) {
     if (pose === "down") { bakeDown(x, L); return; }
     if (pose === "cower") x.scale(0.86, 0.86);
@@ -188,22 +205,21 @@
     const swing = pose === "walk" ? WALK_SWING[fi] : 0;
     const punch = pose === "punch" ? (fi === 0 ? 1 : 0.35) : 0;
     const shoes = L.shoes || "#20242c";
-    const sleeve = U.shade(L.top, -0.18);
     const hand = L.skin;
 
     /* --- jambes / pieds --- */
     if (pose === "sit") {
-      E(x, 7, -3, 3.6, 2.5, 0, L.bottom);
-      E(x, 7, 3, 3.6, 2.5, 0, L.bottom);
-      E(x, 10, -3, 2.2, 1.9, 0, shoes);
-      E(x, 10, 3, 2.2, 1.9, 0, shoes);
+      Er(x, 7, -3, 3.6, 2.5, 0, L.bottom);
+      Er(x, 7, 3, 3.6, 2.5, 0, L.bottom);
+      Er(x, 10, -3, 2.2, 1.9, 0, shoes);
+      Er(x, 10, 3, 2.2, 1.9, 0, shoes);
     } else if (pose !== "cower") {
       // cuisse + chaussure par jambe, foulée opposée
       const lift = pose === "walk" ? Math.abs(swing) * 0.8 : 0;
-      E(x, swing * 3.2, -4.2, 3.6, 2.5, swing * 0.18, L.bottom, true);
-      E(x, -swing * 3.2, 4.2, 3.6, 2.5, -swing * 0.18, L.bottom, true);
-      E(x, swing * 5.6, -4.4, 2.4 + lift * 0.4, 1.9, 0, shoes);
-      E(x, -swing * 5.6, 4.4, 2.4 + lift * 0.4, 1.9, 0, shoes);
+      Er(x, swing * 3.2, -4.2, 3.6, 2.5, swing * 0.18, L.bottom, true);
+      Er(x, -swing * 3.2, 4.2, 3.6, 2.5, -swing * 0.18, L.bottom, true);
+      Er(x, swing * 5.6, -4.4, 2.4 + lift * 0.4, 1.9, 0, shoes);
+      Er(x, -swing * 5.6, 4.4, 2.4 + lift * 0.4, 1.9, 0, shoes);
     }
 
     /* --- sac à dos / mallette (derrière le torse) --- */
@@ -216,39 +232,40 @@
     /* --- bras --- */
     x.strokeStyle = INK;
     const armY = L.robe ? 8.2 : 7.4;
+    const arm = -0.18; // teinte de manche (plus sombre que le torse)
     if (pose === "aim") {
-      E(x, 7.2, -3.2, 4.8, 2.7, 0.28, sleeve);
-      E(x, 7.2, 3.2, 4.8, 2.7, -0.28, sleeve);
-      E(x, 10.6, -1.6, 1.7, 1.5, 0, hand);
-      E(x, 10.6, 1.6, 1.7, 1.5, 0, hand);
+      Er(x, 7.2, -3.2, 4.8, 2.7, 0.28, L.top, false, 1.3, arm);
+      Er(x, 7.2, 3.2, 4.8, 2.7, -0.28, L.top, false, 1.3, arm);
+      Er(x, 10.6, -1.6, 1.7, 1.5, 0, hand);
+      Er(x, 10.6, 1.6, 1.7, 1.5, 0, hand);
     } else if (pose === "cower") {
-      E(x, 4.4, -3, 3.6, 2.6, 0.45, sleeve);
-      E(x, 4.4, 3, 3.6, 2.6, -0.45, sleeve);
-      E(x, 6.8, -1.8, 1.6, 1.4, 0, hand);
-      E(x, 6.8, 1.8, 1.6, 1.4, 0, hand);
+      Er(x, 4.4, -3, 3.6, 2.6, 0.45, L.top, false, 1.3, arm);
+      Er(x, 4.4, 3, 3.6, 2.6, -0.45, L.top, false, 1.3, arm);
+      Er(x, 6.8, -1.8, 1.6, 1.4, 0, hand);
+      Er(x, 6.8, 1.8, 1.6, 1.4, 0, hand);
     } else if (pose === "phone") {
-      E(x, 1, armY, 3.6, 2.6, 0, sleeve);
-      E(x, 4.2, -4.6, 3.4, 2.6, 0.55, sleeve);
-      E(x, 6.4, -2.6, 1.7, 1.5, 0, hand);
+      Er(x, 1, armY, 3.6, 2.6, 0, L.top, false, 1.3, arm);
+      Er(x, 4.2, -4.6, 3.4, 2.6, 0.55, L.top, false, 1.3, arm);
+      Er(x, 6.4, -2.6, 1.7, 1.5, 0, hand);
       // le téléphone
       x.fillStyle = "#14121a";
       x.fillRect(6.4, -3.8, 2.2, 3.4);
     } else if (pose === "punch") {
       const ext = 4 + punch * 7;
-      E(x, ext, -5.4, 4.2, 2.5, 0.12, sleeve);
-      E(x, 1 - punch * 2, 6.8, 3.4, 2.6, 0, sleeve);
-      E(x, ext + 3.4, -4.8, 1.9, 1.7, 0, hand);
+      Er(x, ext, -5.4, 4.2, 2.5, 0.12, L.top, false, 1.3, arm);
+      Er(x, 1 - punch * 2, 6.8, 3.4, 2.6, 0, L.top, false, 1.3, arm);
+      Er(x, ext + 3.4, -4.8, 1.9, 1.7, 0, hand);
     } else {
-      E(x, 1 + swing * 3, -armY, 3.5, 2.6, 0, sleeve);
-      E(x, 1 - swing * 3, armY, 3.5, 2.6, 0, sleeve);
-      E(x, 3.4 + swing * 4, -armY - 0.4, 1.6, 1.4, 0, hand);
-      E(x, 3.4 - swing * 4, armY + 0.4, 1.6, 1.4, 0, hand);
+      Er(x, 1 + swing * 3, -armY, 3.5, 2.6, 0, L.top, false, 1.3, arm);
+      Er(x, 1 - swing * 3, armY, 3.5, 2.6, 0, L.top, false, 1.3, arm);
+      Er(x, 3.4 + swing * 4, -armY - 0.4, 1.6, 1.4, 0, hand);
+      Er(x, 3.4 - swing * 4, armY + 0.4, 1.6, 1.4, 0, hand);
     }
 
     /* --- torse --- */
     const trx = L.robe ? 9.4 : (L.dress ? 8.2 : 7.8);
     const trY = L.robe || L.dress ? 7.4 : 6.8;
-    E(x, 0, 0, trx, trY, 0, L.top);
+    Er(x, 0, 0, trx, trY, 0, L.top, true);
     // panneau central (chemise sous veste ouverte)
     if (L.panel) {
       x.fillStyle = L.panel;
@@ -345,11 +362,43 @@
 
   function bakeHead(x, L) {
     const hx = 2.6, r = 4.9;
-    E(x, hx, 0, r, r, 0, L.skin);
-    // oreilles
+    // ombre de nuque : un croissant sombre décalé vers le torse donne
+    // l'épaisseur du cou sous la tête.
+    x.fillStyle = "rgba(10,7,18,0.24)";
+    x.beginPath(); x.ellipse(hx - 2.6, 0, r - 0.2, r - 0.3, 0, 0, U.TAU); x.fill();
+    // oreilles (sous la tête, teinte peau ombrée)
     if (!L.hat || L.hat === "cap" || L.hat === "bandana") {
-      E(x, hx - 0.6, -r + 0.4, 1.1, 0.9, 0, L.skin, true);
-      E(x, hx - 0.6, r - 0.4, 1.1, 0.9, 0, L.skin, true);
+      Er(x, hx - 0.6, -r + 0.4, 1.2, 1, 0, L.skin, true, 1, -0.12);
+      Er(x, hx - 0.6, r - 0.4, 1.2, 1, 0, L.skin, true, 1, -0.12);
+    }
+    // crâne / visage en dôme (lumière en haut-gauche)
+    Er(x, hx, 0, r, r, 0, L.skin);
+    // pommette éclairée côté lumière
+    x.fillStyle = "rgba(255,246,226,0.20)";
+    x.beginPath(); x.ellipse(hx + 1.4, -1.8, 1.9, 1.3, -0.4, 0, U.TAU); x.fill();
+
+    // traits du visage (le perso regarde vers +x, légère plongée) : nez,
+    // sourcils et yeux — donne un vrai petit visage plutôt qu'un dôme nu.
+    const fx = hx + 2.1;
+    // nez : arête claire + ombre douce
+    x.strokeStyle = "rgba(255,244,224,0.42)"; x.lineWidth = 0.75; x.lineCap = "round";
+    x.beginPath(); x.moveTo(fx - 0.3, -0.4); x.lineTo(fx + 1.5, 0); x.lineTo(fx - 0.3, 0.4); x.stroke();
+    x.strokeStyle = "rgba(90,58,40,0.34)"; x.lineWidth = 0.7;
+    x.beginPath(); x.moveTo(fx + 1.4, 0.5); x.lineTo(fx - 0.2, 0.9); x.stroke();
+    x.lineCap = "butt";
+    if (!L.glasses) {
+      // sourcils
+      x.strokeStyle = "rgba(34,24,20,0.55)"; x.lineWidth = 0.85; x.lineCap = "round";
+      x.beginPath(); x.moveTo(fx - 1.1, -2.3); x.lineTo(fx + 0.5, -1.5); x.stroke();
+      x.beginPath(); x.moveTo(fx - 1.1, 2.3); x.lineTo(fx + 0.5, 1.5); x.stroke();
+      x.lineCap = "butt";
+      // yeux (petits, sombres, reflet ponctuel)
+      for (const ey of [-1.55, 1.55]) {
+        x.fillStyle = "rgba(24,18,26,0.78)";
+        x.beginPath(); x.ellipse(fx - 0.1, ey, 0.72, 0.52, 0, 0, U.TAU); x.fill();
+        x.fillStyle = "rgba(255,255,255,0.65)";
+        x.beginPath(); x.arc(fx + 0.15, ey - 0.2, 0.2, 0, U.TAU); x.fill();
+      }
     }
     // barbe / barbiche (pointe avant)
     if (L.beard) {
@@ -406,6 +455,13 @@
         x.strokeStyle = INK; x.lineWidth = 1.1; x.stroke();
         E(x, hx - r - 2.4, 0, 4, 3.2, 0, hairC, true);
         break;
+    }
+
+    // reflet sur la chevelure (mèche lumineuse côté lumière)
+    if (L.hairStyle && L.hairStyle !== "bald" && !L.hood && (!L.hat || L.hat === "bandana")) {
+      x.strokeStyle = U.shade(hairC, 0.34); x.lineWidth = 1.2; x.lineCap = "round";
+      x.beginPath(); x.arc(hx - 1.2, -0.8, r - 1.3, Math.PI * 0.92, Math.PI * 1.42); x.stroke();
+      x.lineCap = "butt";
     }
 
     // capuche par-dessus les cheveux
@@ -502,14 +558,14 @@
 
   function bakeDown(x, L) {
     // au sol, membres relâchés
-    E(x, -6, 2.5, 4, 2.3, 0.5, L.bottom);
-    E(x, -5.4, -3, 4, 2.3, -0.4, L.bottom);
-    E(x, -8.6, 3.6, 2.1, 1.7, 0, L.shoes || "#20242c");
-    E(x, -8, -4.2, 2.1, 1.7, 0, L.shoes || "#20242c");
-    E(x, 1.5, 0, 7.6, 6.2, 0.12, L.top);
-    E(x, 3, -6.4, 3.2, 2.2, -0.5, U.shade(L.top, -0.18));
-    E(x, 1, 6.6, 3.2, 2.2, 0.6, U.shade(L.top, -0.18));
-    E(x, 9.6, -1, 4.4, 4.4, 0, L.skin);
+    Er(x, -6, 2.5, 4, 2.3, 0.5, L.bottom);
+    Er(x, -5.4, -3, 4, 2.3, -0.4, L.bottom);
+    Er(x, -8.6, 3.6, 2.1, 1.7, 0, L.shoes || "#20242c");
+    Er(x, -8, -4.2, 2.1, 1.7, 0, L.shoes || "#20242c");
+    Er(x, 1.5, 0, 7.6, 6.2, 0.12, L.top);
+    Er(x, 3, -6.4, 3.2, 2.2, -0.5, L.top, false, 1.3, -0.18);
+    Er(x, 1, 6.6, 3.2, 2.2, 0.6, L.top, false, 1.3, -0.18);
+    Er(x, 9.6, -1, 4.4, 4.4, 0, L.skin);
     x.fillStyle = L.hair;
     x.beginPath(); x.arc(8.6, -1.4, 4.4, Math.PI * 0.5, Math.PI * 1.5); x.fill();
   }
@@ -522,11 +578,16 @@
   function drawPed(ctx, look, angle, walkPhase, pose, opt) {
     opt = opt || {};
 
-    // ombre portée (hors sprite : elle ne tourne pas avec le corps)
+    // ombre portée (hors sprite : elle ne tourne pas avec le corps),
+    // dégradé radial → bords doux plutôt qu'une tache dure.
     if (pose !== "down") {
-      ctx.fillStyle = "rgba(10,8,20,0.30)";
+      const sg = ctx.createRadialGradient(1.6, 2.8, 1.2, 1.6, 2.8, 9.4);
+      sg.addColorStop(0, "rgba(8,6,16,0.36)");
+      sg.addColorStop(0.62, "rgba(8,6,16,0.22)");
+      sg.addColorStop(1, "rgba(8,6,16,0)");
+      ctx.fillStyle = sg;
       ctx.beginPath();
-      ctx.ellipse(1.5, 2.2, 8.6, 7, 0, 0, U.TAU);
+      ctx.ellipse(1.6, 2.8, 9.2, 7.4, 0, 0, U.TAU);
       ctx.fill();
     }
 

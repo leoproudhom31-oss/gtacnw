@@ -83,9 +83,14 @@ volables, mobilier urbain, pickups cachés (santé, argent, armes, armure).
   fuient sous les coups de feu — et les **témoins d'un crime courent alerter
   la police** (bulle « ! » : à vous de les en dissuader) ; le trafic suit
   les files, lève le pied aux intersections, klaxonne, contourne les épaves ;
-- **Police / étoiles de recherche (5 niveaux)** : vision réaliste avec
-  **mémoire de la dernière position connue** (les agents ratissent le secteur
-  quand vous cassez la ligne de vue), **pathfinding à pied** autour des
+- **Police / étoiles de recherche (5 niveaux)** : une étoile ne s'allume plus
+  au moindre écart — le système accumule une **« chaleur »** proportionnelle à
+  la gravité du délit et à qui vous a vu (une bousculade se dissipe toute
+  seule, un coup de feu n'accroche que si un agent le voit, un meurtre devant
+  témoin monte franc) ; sous le seuil, la pression **retombe au calme**.
+  Vision réaliste avec **mémoire de la dernière position connue** (les agents
+  ratissent le secteur quand vous cassez la ligne de vue), **pathfinding à
+  pied** autour des
   bâtiments, tir en rafales avec déplacements latéraux, encerclement au
   corps à corps, **interception** en voiture, **barrages routiers à 3★**,
   **hélicoptère à 4★** (impossible de se cacher sous son œil — mais il peut
@@ -138,7 +143,12 @@ le dépôt ne contient aucune image bitmap.
 civils — cadre, ouvrier, vendeur, hoodie, touriste, élégante, mamie,
 coursier — avec coiffures, chapeaux, lunettes et sacs variés, plus les tenues
 nommées de Jin, Wu, Long et des gangs), vraie marche à 4 frames, chaque frame
-n'étant dessinée qu'une fois puis réutilisée depuis un cache.
+n'étant dessinée qu'une fois puis réutilisée depuis un cache. Chaque membre
+(torse, bras, jambes, tête) est **modelé par un dégradé radial** (lumière en
+haut-gauche, ombre douce) plutôt qu'en aplat, avec **petit visage** (nez,
+sourcils, yeux à reflet — masqués par les lunettes), reflet sur la chevelure,
+ombre de nuque et **ombre portée à bords doux** ; sprites suréchantillonnés ×3
+à la cuisson pour rester nets au zoom.
 
 ### 🖼️ Gestion des textures & résolution
 
