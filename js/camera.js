@@ -30,22 +30,24 @@
     let targetRot, targetZoom;
 
     if (veh) {
-      // regarder devant le véhicule
+      // regarder devant le véhicule (anticipation accrue à haute vitesse)
       const sp = Math.sqrt(veh.vx * veh.vx + veh.vy * veh.vy);
-      const ahead = Math.min(150, sp * 0.5);
+      const ahead = Math.min(175, sp * 0.55);
       tx = veh.x + Math.cos(veh.angle) * ahead;
       ty = veh.y + Math.sin(veh.angle) * ahead;
       targetRot = -Math.PI / 2 - veh.angle;
-      targetZoom = U.lerp(1.0, 0.78, U.clamp(sp / 380, 0, 1));
+      targetZoom = U.lerp(1.0, 0.76, U.clamp(sp / 380, 0, 1));
     } else {
-      tx = player.x + player.vx * 0.35;
-      ty = player.y + player.vy * 0.35;
+      // en l'air (chute/éjection) : léger dézoom pour garder le joueur en vue
+      const airborne = (player.z || 0) > 0;
+      tx = player.x + player.vx * 0.4;
+      ty = player.y + player.vy * 0.4;
       targetRot = 0; // retour au nord, en douceur
-      targetZoom = 1.0;
+      targetZoom = airborne ? 0.94 : 1.0;
     }
 
-    Cam._lookX = U.damp(Cam._lookX, tx, 5, dt);
-    Cam._lookY = U.damp(Cam._lookY, ty, 5, dt);
+    Cam._lookX = U.damp(Cam._lookX, tx, 6, dt);
+    Cam._lookY = U.damp(Cam._lookY, ty, 6, dt);
     Cam.x = Cam._lookX;
     Cam.y = Cam._lookY;
 

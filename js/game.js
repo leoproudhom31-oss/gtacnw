@@ -1005,6 +1005,77 @@
      RENDU
      ========================================================= */
 
+  // point dans un quadrilatère (via deux triangles, ordre quelconque)
+  function _sign(ax, ay, bx, by, cx, cy) {
+    return (ax - cx) * (by - cy) - (bx - cx) * (ay - cy);
+  }
+  function _inTri(px, py, ax, ay, bx, by, cx, cy) {
+    const d1 = _sign(px, py, ax, ay, bx, by);
+    const d2 = _sign(px, py, bx, by, cx, cy);
+    const d3 = _sign(px, py, cx, cy, ax, ay);
+    const neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+    const pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+    return !(neg && pos);
+  }
+  function _inQuad(px, py, q) {
+    return _inTri(px, py, q[0][0], q[0][1], q[1][0], q[1][1], q[2][0], q[2][1]) ||
+           _inTri(px, py, q[0][0], q[0][1], q[2][0], q[2][1], q[3][0], q[3][1]);
+  }
+
+  const _elv = { x: 0, y: 0 };
+  // (ex,ey) est-il masqué par la silhouette extrudée du bâtiment b ?
+  function pointUnderBuilding(ex, ey, b, camX, camY) {
+    const cor = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
+    const top = [];
+    for (let i = 0; i < 4; i++) {
+      G.Sprites.elevate(cor[i][0], cor[i][1], b.height, camX, camY, _elv);
+      top.push([_elv.x, _elv.y]);
+    }
+    if (_inQuad(ex, ey, cor)) return true;      // empreinte au sol
+    if (_inQuad(ex, ey, top)) return true;      // toit
+    for (let i = 0; i < 4; i++) {               // murs (base → toit)
+      const j = (i + 1) % 4;
+      if (_inQuad(ex, ey, [cor[i], cor[j], top[j], top[i]])) return true;
+    }
+    return false;
+  }
+
+  function drawPlayerGhostIfHidden(ctx, cam) {
+    const pl = W.player;
+    if (pl.dead || W.state !== "play") return;
+    // le joueur ne peut être masqué que lorsque la caméra vise ailleurs que
+    // sur lui : au volant (regard porté devant) ou projeté en l'air. À pied et
+    // au sol il est au centre, là où l'extrusion radiale ne recouvre rien.
+    if (!pl.vehicle && (pl.z || 0) <= 0 && (pl.tumbleT || 0) <= 0) return;
+    const ent = pl.vehicle || pl;
+    const ex = ent.x, ey = ent.y;
+    const camDist = U.dist(cam.x, cam.y, ex, ey);
+    let hidden = false;
+    for (const b of G.Map.buildings) {
+      if (b.height < 30) continue;
+      if (Math.abs(b.cx - ex) > 300 || Math.abs(b.cy - ey) > 300) continue;
+      // seul un bâtiment PLUS PROCHE de la caméra peut masquer l'entité
+      if (U.dist(cam.x, cam.y, b.cx, b.cy) >= camDist + 24) continue;
+      if (pointUnderBuilding(ex, ey, b, cam.x, cam.y)) { hidden = true; break; }
+    }
+    if (!hidden) return;
+    // silhouette translucide + halo pour ne jamais perdre le joueur
+    ctx.save();
+    ctx.globalAlpha = 0.45;
+    if (pl.vehicle) E().drawVehicle(ctx, pl.vehicle, W);
+    else E().drawPlayer(ctx, pl);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.rotate(-cam.rot);
+    ctx.strokeStyle = "rgba(46,230,168,0.85)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.arc(0, 0, 16, 0, U.TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
   function render(ctx, width, height) {
     W.viewW = width; W.viewH = height;
     const pl = W.player;
@@ -1137,6 +1208,10 @@
 
     // 8. bâtiments & props hauts (occlusion 2.5D)
     G.Map.drawStructures(ctx, cam.x, cam.y, vx0, vy0, vx1, vy1);
+
+    // 8b. le joueur (et son véhicule) ne doivent JAMAIS être perdus derrière
+    //     un bâtiment : s'il est masqué, on le redessine en silhouette.
+    drawPlayerGhostIfHidden(ctx, cam);
 
     // 9. hélicoptère (au-dessus de tout, avec parallaxe d'altitude)
     if (W.heli && !W.heli.dead) {

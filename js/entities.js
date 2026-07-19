@@ -23,6 +23,105 @@
   const WEAPON_ORDER = ["fist", "bat", "pistol", "smg", "shotgun"];
 
   /* =========================================================
+     PHYSIQUE AÉRIENNE (axe z) — partagée piétons / véhicules
+     Le z est une hauteur au-dessus du sol, dans la même unité que
+     la hauteur des bâtiments : le rendu réutilise la parallaxe
+     `elevate()` pour un « décollage » cohérent avec la ville.
+     ========================================================= */
+
+  const GRAV = 1500;          // gravité (unités de hauteur / s²)
+
+  // intègre z/vz sous gravité ; renvoie true si l'entité a touché le sol
+  // pendant cette frame (transition d'atterrissage).
+  function stepGravity(e, dt) {
+    if (e.z <= 0 && e.vz <= 0) { e.z = 0; return false; }
+    e.vz -= GRAV * dt;
+    e.z += e.vz * dt;
+    if (e.z <= 0) { e.z = 0; return true; } // atterrissage
+    return false;
+  }
+
+  // projette une entité en l'air à la position écran surélevée (parallaxe),
+  // et renvoie l'échelle apparente (plus grand = plus près de la caméra).
+  function airProject(e, camX, camY, out) {
+    if (e.z > 0.5) {
+      S.elevate(e.x, e.y, e.z, camX, camY, out);
+      return 1 + e.z * 0.0016;
+    }
+    out.x = e.x; out.y = e.y;
+    return 1;
+  }
+
+  const _air = { x: 0, y: 0 };
+
+  /* =========================================================
+     COLLISIONS GÉNÉRALISÉES — corps des véhicules & entre piétons
+     ========================================================= */
+
+  // repousse une entité (piéton/joueur) hors de la caisse orientée d'un
+  // véhicule (boîte OBB). Renvoie true si un contact a eu lieu.
+  function pushOutOfVehicle(e, r, v) {
+    const def = v.def;
+    const hl = def.L * 0.46, hw = def.W * 0.48;
+    const cs = Math.cos(v.angle), sn = Math.sin(v.angle);
+    const dx = e.x - v.x, dy = e.y - v.y;
+    const fx = dx * cs + dy * sn, fy = -dx * sn + dy * cs; // repère caisse
+    const cx = U.clamp(fx, -hl, hl), cy = U.clamp(fy, -hw, hw);
+    let lx = fx - cx, ly = fy - cy;
+    let d = Math.hypot(lx, ly);
+    if (d > r) return false;
+    let ox, oy;
+    if (d > 0.001) {
+      const push = r - d; lx /= d; ly /= d;
+      ox = lx * push; oy = ly * push;
+    } else {
+      // centre à l'intérieur : ressortir par le côté le moins enfoncé
+      const penF = hl + r - Math.abs(fx), penR = hw + r - Math.abs(fy);
+      if (penF < penR) { ox = (Math.sign(fx) || 1) * penF; oy = 0; }
+      else { ox = 0; oy = (Math.sign(fy) || 1) * penR; }
+    }
+    e.x += ox * cs - oy * sn;
+    e.y += ox * sn + oy * cs;
+    return true;
+  }
+
+  // une entité à pied ne traverse plus les véhicules ; percutée par un
+  // véhicule lancé, elle est fauchée / projetée.
+  function collideEntityVehicles(e, w, r, isPlayer) {
+    w.eachVehNear(e.x, e.y, 70, (v) => {
+      if (v.wreck || v.sunk || v.overboard || v.z > 0.5 || v.def.water) return;
+      if (isPlayer && v === e.vehicle) return;
+      const sp = Math.hypot(v.vx, v.vy);
+      const near = U.dist(e.x, e.y, v.x, v.y) < v.def.L * 0.5 + r + 4;
+      if (!near) return;
+      if (isPlayer && sp > 150 && !e.swimming && e.z <= 0 && e.tumbleT <= 0) {
+        // le joueur à pied fauché de plein fouet
+        const nx = (e.x - v.x) / (U.dist(e.x, e.y, v.x, v.y) || 1);
+        const ny = (e.y - v.y) / (U.dist(e.x, e.y, v.x, v.y) || 1);
+        tossPlayer(e, w, v.vx * 0.7 + nx * 60, v.vy * 0.7 + ny * 60, 90 + sp * 0.3);
+        w.hurtPlayer(U.clamp(sp * 0.12, 6, 45), null);
+        v.vx *= 0.9; v.vy *= 0.9;
+        return;
+      }
+      pushOutOfVehicle(e, r, v);
+    });
+  }
+
+  // séparation douce entre piétons (on ne se superpose plus)
+  function separatePeds(p, w) {
+    w.eachPedNear(p.x, p.y, 24, (o) => {
+      if (o === p || o.dead || o.state === "tumble" || o.state === "knocked") return;
+      const dx = p.x - o.x, dy = p.y - o.y;
+      const min = p.radius + o.radius;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < min * min && d2 > 0.0001) {
+        const d = Math.sqrt(d2), push = (min - d) * 0.5;
+        p.x += dx / d * push; p.y += dy / d * push;
+      }
+    });
+  }
+
+  /* =========================================================
      PIÉTON
      ========================================================= */
 
@@ -36,13 +135,16 @@
       kind,                         // civ | cop | shark | lotus | wu
       look: S.pedLook(kind, r),
       x, y, vx: 0, vy: 0,
+      z: 0, vz: 0,                  // physique aérienne
+      spin: 0, spinVel: 0,          // culbute (rotation propre en l'air)
+      getupT: 0,
       angle: r() * U.TAU,
       radius: 7,
       scale: kind === "civ" ? 0.92 + r() * 0.16 : 1,
       hp: kind === "cop" ? 60 : (kind === "shark" || kind === "lotus") ? 55 : 35,
       dead: false,
       corpseT: 0,
-      state: "wander",              // wander | flee | cower | chase | search | knocked | dummy
+      state: "wander",              // wander | flee | cower | chase | search | knocked | tumble | dummy
       walkPhase: 0,
       idleT: 0.5 + r() * 2,
       tgtX: x, tgtY: y,
@@ -110,6 +212,20 @@
     }
   }
 
+  // projette un piéton en l'air avec inertie + culbute (choc violent,
+  // éjection, chute) : atterrit, roule, puis se relève.
+  function pedTumble(p, w, vx, vy, vz, dmg, srcKind) {
+    if (dmg) pedTakeDamage(p, w, dmg, srcKind || "playercar", p.x - vx, p.y - vy);
+    if (p.dead) return;
+    p.state = "tumble";
+    p.knockT = 0;
+    p.vx = vx; p.vy = vy;
+    p.vz = vz || 0;
+    p.z = Math.max(p.z, 0.1);
+    p.spinVel = (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 8);
+    p.getupT = 0;
+  }
+
   function updatePed(p, w, dt) {
     if (p.dead) {
       p.corpseT -= dt;
@@ -135,6 +251,47 @@
         }
         return true;
       }
+      case "tumble": {
+        // en l'air : inertie conservée (traînée faible), rotation propre
+        const airborne = p.z > 0;
+        const drag = airborne ? 0.4 : 6.5; // au sol : friction de roulade
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        p.vx *= Math.exp(-drag * dt); p.vy *= Math.exp(-drag * dt);
+        p.spin += p.spinVel * dt;
+        p.spinVel *= Math.exp(-(airborne ? 0.6 : 5) * dt);
+        M().collideCircle(p, p.radius);
+
+        const landed = stepGravity(p, dt);
+        if (landed) {
+          w.addParticle("dust", p.x, p.y, 5);
+          const impact = -p.vz;
+          if (impact > 380) w.addParticle("dust", p.x, p.y, 4);
+          p.vz = impact > 300 ? impact * 0.18 : 0; // petit rebond si chute rude
+          p.spinVel *= 0.5;
+        }
+        // tombé à l'eau pendant la culbute
+        if (p.z <= 0 && M().isWaterAt(p.x, p.y)) {
+          w.addParticle("splash", p.x, p.y, 8);
+          G.Audio.play("splash");
+          if (p.kind === "civ" || p.kind === "wu") { p.dead = true; p.corpseT = 0.5; return false; }
+          // gangs/flics : ressortent assommés vers la berge (pas de nage IA)
+          p.dead = true; p.corpseT = 1.2; w.addDecal("blood", p.x, p.y); return true;
+        }
+        // immobilisé au sol → phase de relevé
+        if (p.z <= 0 && (p.vx * p.vx + p.vy * p.vy) < 60) {
+          if (p.getupT <= 0) p.getupT = 0.9;
+          p.getupT -= dt;
+          p.spin *= Math.exp(-8 * dt);
+          if (p.getupT <= 0) {
+            const player = w.player;
+            p.spin = 0; p.spinVel = 0;
+            p.state = (p.kind === "civ" || p.kind === "wu") ? "flee" : "chase";
+            if (p.state === "chase") p.aggro = player;
+            p.threatX = player.x; p.threatY = player.y;
+          }
+        }
+        return true;
+      }
       case "cower": {
         p.cowerT -= dt;
         p.walkPhase = 0; p.vx = 0; p.vy = 0;
@@ -145,6 +302,12 @@
       case "flee":   fleeUpdate(p, w, dt); break;
       case "search": searchUpdate(p, w, dt); break;
       case "chase":  chaseUpdate(p, w, dt); break;
+    }
+    // collisions généralisées : ni superposition entre piétons, ni traversée
+    // des véhicules (un piéton assis reste tranquille)
+    if (!p.activity) {
+      separatePeds(p, w);
+      collideEntityVehicles(p, w, p.radius, false);
     }
     return true;
   }
@@ -461,6 +624,26 @@
   }
 
   function drawPedEntity(ctx, p) {
+    // culbute en l'air : ombre au sol + sprite surélevé qui tournoie
+    if (p.state === "tumble") {
+      const cam = G.Camera;
+      const sc = airProject(p, cam.x, cam.y, _air);
+      const shScale = 1 / (1 + p.z * 0.02);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.fillStyle = "rgba(8,6,16,0.28)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 8 * shScale, 6 * shScale, 0, 0, U.TAU);
+      ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.translate(_air.x, _air.y);
+      ctx.rotate(p.spin);
+      ctx.scale(sc, sc);
+      S.drawPed(ctx, p.look, p.angle, 0, "down", { noShadow: true });
+      ctx.restore();
+      return;
+    }
     ctx.save();
     ctx.translate(p.x, p.y);
     if (p.dead) {
@@ -503,6 +686,8 @@
     return {
       etype: "player",
       x, y, vx: 0, vy: 0,
+      z: 0, vz: 0, spin: 0, spinVel: 0,
+      tumbleT: 0, diveT: 0,
       angle: -Math.PI / 2,
       radius: 7,
       hp: 100, maxHp: 100,
@@ -542,6 +727,39 @@
     if (pl.vehicle) {
       updatePlayerDriving(pl, w, dt);
       return;
+    }
+
+    // ------- culbute / projection en l'air (éjection, chute) -------
+    if (pl.tumbleT > 0 || pl.z > 0) {
+      pl.tumbleT = Math.max(0, pl.tumbleT - dt);
+      const airborne = pl.z > 0;
+      pl.x += pl.vx * dt; pl.y += pl.vy * dt;
+      pl.vx *= Math.exp(-(airborne ? 0.4 : 6.5) * dt);
+      pl.vy *= Math.exp(-(airborne ? 0.4 : 6.5) * dt);
+      pl.spin += pl.spinVel * dt;
+      pl.spinVel *= Math.exp(-(airborne ? 0.6 : 5) * dt);
+      M().collideWalker(pl, pl.radius);
+      const landed = stepGravity(pl, dt);
+      if (landed) {
+        w.addParticle("dust", pl.x, pl.y, 5);
+        const impact = -pl.vz;
+        pl.vz = impact > 300 ? impact * 0.16 : 0;
+        if (impact > 520) w.hurtPlayer(U.clamp((impact - 500) * 0.05, 0, 30), null);
+        G.Camera.shake(U.clamp(impact / 1400, 0, 0.4));
+      }
+      // tombé à l'eau : on plonge et on nage
+      if (pl.z <= 0 && M().isWaterAt(pl.x, pl.y)) {
+        pl.z = 0; pl.vz = 0; pl.spin = 0; pl.spinVel = 0; pl.tumbleT = 0;
+        pl.swimming = true; pl.walkPhase = 0;
+        G.Audio.play("splash"); w.addParticle("splash", pl.x, pl.y, 9);
+        return;
+      }
+      if (pl.z <= 0 && pl.tumbleT <= 0 && (pl.vx * pl.vx + pl.vy * pl.vy) < 80) {
+        pl.spin = 0; pl.spinVel = 0;
+      } else {
+        pl.aimTarget = null;
+        return;
+      }
     }
 
     // ------- à pied / à la nage -------
@@ -616,13 +834,17 @@
     pl.x += pl.vx * dt;
     pl.y += pl.vy * dt;
     M().collideWalker(pl, pl.radius);
+    // ne traverse plus les véhicules (et se fait faucher par les rapides)
+    collideEntityVehicles(pl, w, pl.radius, true);
+    if (pl.tumbleT > 0 || pl.z > 0) return; // fauché : la culbute prend le relais
 
-    // tombé / entré dans l'eau → on nage
+    // tombé / entré dans l'eau → plongeon puis nage
     if (M().isWaterAt(pl.x, pl.y)) {
       pl.swimming = true;
       pl.walkPhase = 0;
       G.Audio.play("splash");
-      w.addParticle("splash", pl.x, pl.y, 7);
+      // entrée à l'élan : gros plongeon
+      w.addParticle("splash", pl.x, pl.y, speed > 150 ? 12 : 7);
       pl.aimTarget = null;
       return;
     }
@@ -797,10 +1019,32 @@
     w.onEnterVehicle(v);
   }
 
+  // projette le joueur en l'air (éjection de véhicule, chute, souffle)
+  function tossPlayer(pl, w, vx, vy, vz) {
+    pl.vehicle = null;
+    pl.vx = vx; pl.vy = vy; pl.vz = vz || 0;
+    pl.z = Math.max(pl.z, 0.1);
+    pl.spinVel = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 6);
+    pl.tumbleT = 0.7;
+    pl.enterT = 0.8;
+    pl.aimTarget = null;
+  }
+
   function exitVehicle(pl, w) {
     const v = pl.vehicle;
     const sp = Math.sqrt(v.vx * v.vx + v.vy * v.vy);
-    if (sp > 140) return; // trop rapide pour sauter
+    // trop rapide pour descendre proprement : on saute en marche et on roule
+    if (sp > 150) {
+      v.throttle = 0; v.steer = 0; v.driverKind = null;
+      const side = v.angle + Math.PI / 2;
+      pl.x = v.x + Math.cos(side) * (v.def.W / 2 + 10);
+      pl.y = v.y + Math.sin(side) * (v.def.W / 2 + 10);
+      tossPlayer(pl, w, v.vx * 0.7, v.vy * 0.7, 120 + sp * 0.4);
+      w.hurtPlayer(U.clamp((sp - 150) * 0.06, 0, 20), null);
+      G.Audio.play("door"); G.Audio.stopEngine();
+      w.toast("Saut en marche !");
+      return;
+    }
     const side = v.angle + Math.PI / 2;
     let placed = false;
     for (const s of [1, -1]) {
@@ -881,6 +1125,26 @@
 
   function drawPlayer(ctx, pl) {
     if (pl.vehicle) return; // dessiné avec la voiture
+
+    // culbute / chute en l'air : ombre au sol + corps surélevé qui tournoie
+    if (pl.state !== "dead" && (pl.z > 0 || pl.tumbleT > 0) && !pl.dead) {
+      const cam = G.Camera;
+      const sc = airProject(pl, cam.x, cam.y, _air);
+      const shScale = 1 / (1 + pl.z * 0.02);
+      ctx.save();
+      ctx.translate(pl.x, pl.y);
+      ctx.fillStyle = "rgba(8,6,16,0.30)";
+      ctx.beginPath(); ctx.ellipse(0, 0, 8 * shScale, 6 * shScale, 0, 0, U.TAU); ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.translate(_air.x, _air.y);
+      ctx.rotate(pl.spin);
+      ctx.scale(sc, sc);
+      S.drawPed(ctx, pl.look, pl.angle, 0, "down", { noShadow: true });
+      ctx.restore();
+      return;
+    }
+
     ctx.save();
     ctx.translate(pl.x, pl.y);
     const wp = WEAPONS[pl.weapon];
@@ -910,6 +1174,9 @@
       type, def,
       color: color || U.pick(Math.random, S.CAR_COLORS),
       x, y, vx: 0, vy: 0,
+      z: 0, vz: 0,               // physique aérienne
+      roll: 0, rollVel: 0,       // tonneau / chavirage
+      overboard: false, sinkT: 0, sunk: false,
       angle, angVel: 0,
       throttle: 0, steer: 0, handbrake: false,
       hp: def.hp, maxHp: def.hp,
@@ -929,8 +1196,74 @@
 
   function vehicleSpeed(v) { return Math.sqrt(v.vx * v.vx + v.vy * v.vy); }
 
+  // le véhicule coule : descend sous l'eau en dégageant des bulles
+  function updateSinking(v, w, dt) {
+    v.sinkT -= dt;
+    v.z -= 46 * dt;
+    v.vx *= Math.exp(-3 * dt); v.vy *= Math.exp(-3 * dt);
+    v.x += v.vx * dt; v.y += v.vy * dt;
+    if (Math.random() < 0.5)
+      w.addParticle("bubble", v.x + (Math.random() - 0.5) * v.def.L * 0.5,
+                             v.y + (Math.random() - 0.5) * v.def.W * 0.5, 1);
+    if (v.sinkT <= 0 && !v.sunk) { v.sunk = true; v.wreck = true; }
+  }
+
+  // le conducteur passe par-dessus bord et se retrouve à la nage
+  function ejectDriverToWater(v, w) {
+    if (v.driverKind === "player") {
+      const pl = w.player;
+      pl.vehicle = null; pl.x = v.x; pl.y = v.y;
+      pl.z = 0; pl.vz = 0; pl.tumbleT = 0; pl.spin = 0; pl.spinVel = 0;
+      pl.swimming = true; pl.walkPhase = 0; pl.enterT = 0.7;
+      G.Audio.stopEngine();
+      w.toast("Par-dessus bord !");
+    }
+    v.ai = null; v.driverKind = null; v.throttle = 0; v.steer = 0;
+  }
+
+  function vehicleOverboard(v, w) {
+    if (v.overboard) return;
+    v.overboard = true;
+    v.vz = 60;
+    v.rollVel = (Math.random() < 0.5 ? -1 : 1) * (1.5 + Math.random() * 2);
+    G.Audio.play("splash");
+    if (v.driverKind === "player") G.Camera.shake(0.25);
+  }
+
+  // véhicule en l'air (par-dessus bord, projeté par un choc, chute) :
+  // inertie conservée, gravité, rotation, pas de collision monde.
+  function updateVehicleAirborne(v, w, dt) {
+    const def = v.def;
+    v.x += v.vx * dt; v.y += v.vy * dt;
+    v.vx *= Math.exp(-0.3 * dt); v.vy *= Math.exp(-0.3 * dt);
+    v.roll += v.rollVel * dt; v.rollVel *= Math.exp(-0.4 * dt);
+    v.angle += v.angVel * dt; v.angVel *= Math.exp(-1.5 * dt);
+    const landed = stepGravity(v, dt);
+    if (landed) {
+      const inWater = M().isWaterAt(v.x, v.y) && !M().isUnderBridge(v.x, v.y);
+      const imp = -v.vz;
+      if (inWater) {
+        for (let i = 0; i < 16; i++)
+          w.addParticle("splash", v.x + (Math.random() - 0.5) * def.L, v.y + (Math.random() - 0.5) * def.W, 1);
+        G.Audio.play("splash"); G.Camera.shake(0.3);
+        ejectDriverToWater(v, w);
+        v.overboard = false; v.sinkT = 2.4; v.rollVel = 0;
+      } else {
+        w.addParticle("dust", v.x, v.y, 9);
+        G.Audio.play("crash"); G.Camera.shake(U.clamp(imp / 1200, 0.05, 0.5));
+        damageVehicle(v, w, imp * 0.05, null);
+        v.vz = imp > 260 ? imp * 0.18 : 0;   // rebond si chute rude
+        if (imp <= 260) { v.overboard = false; if (Math.abs(v.roll) > 2.2) v.roll = Math.PI; }
+      }
+    }
+    v.lightT += dt;
+    return true;
+  }
+
   function updateVehicle(v, w, dt) {
     if (v.wreck) return true;
+    if (v.sinkT > 0) { updateSinking(v, w, dt); return true; }
+    if (v.overboard || v.z > 0.5) return updateVehicleAirborne(v, w, dt);
 
     if (v.explodeT >= 0) {
       v.explodeT -= dt;
@@ -945,6 +1278,20 @@
 
     // --- physique arcade, différenciée par type ---
     const def = v.def;
+
+    // passage par-dessus bord : un véhicule terrestre lancé vers l'eau
+    // bascule dans le vide au lieu de rebondir contre le quai
+    if (!def.water) {
+      const sp0 = vehicleSpeed(v);
+      if (sp0 > 105) {
+        const fx = v.x + Math.cos(v.angle) * def.L * 0.5;
+        const fy = v.y + Math.sin(v.angle) * def.L * 0.5;
+        if (M().isWaterAt(fx, fy) && !M().isUnderBridge(fx, fy)) {
+          vehicleOverboard(v, w);
+          return updateVehicleAirborne(v, w, dt);
+        }
+      }
+    }
     const fw = { x: Math.cos(v.angle), y: Math.sin(v.angle) };
     const rt = { x: -fw.y, y: fw.x };
     let fSpd = v.vx * fw.x + v.vy * fw.y;
@@ -1065,10 +1412,8 @@
       if (def.bike && impact > 130) {
         if (v.driverKind === "player") {
           const pl2 = w.player;
-          pl2.vehicle = null;
-          pl2.enterT = 0.8;
           pl2.x = v.x - fw.x * 10; pl2.y = v.y - fw.y * 10;
-          M().collideWalker(pl2, pl2.radius);
+          tossPlayer(pl2, w, v.vx * 0.85, v.vy * 0.85, 140);
           w.hurtPlayer(Math.min(35, impact * 0.09), null);
           G.Audio.stopEngine();
           v.driverKind = null; v.throttle = 0; v.steer = 0;
@@ -1076,11 +1421,25 @@
         } else if (v.driverKind && v.ai) {
           const rider = makePed(v.driverKind === "cop" ? "cop" : "civ", v.x - fw.x * 8, v.y - fw.y * 8);
           if (v.riderLook) rider.look = v.riderLook;
-          rider.state = "knocked"; rider.knockT = 1.8;
-          rider.vx = v.vx * 0.4; rider.vy = v.vy * 0.4;
+          pedTumble(rider, w, v.vx * 0.55, v.vy * 0.55, 120, 0);
           w.peds.push(rider);
           v.ai = null; v.driverKind = null; v.throttle = 0; v.steer = 0;
         }
+      }
+
+      // bateau qui percute une berge à pleine vitesse : il chavire
+      if (def.water && impact > 150 && !v.overboard) {
+        v.roll = Math.PI * 0.9;
+        v.vz = 20; v.rollVel = 3;
+        ejectDriverToWater(v, w);
+        v.sinkT = 2.6;
+        w.toast("Bateau chaviré !");
+      }
+      // choc terrestre colossal : la caisse fait un tonneau et décolle
+      else if (!def.water && !def.bike && impact > 240) {
+        v.vz = 70 + impact * 0.2;
+        v.rollVel = (Math.random() < 0.5 ? -1 : 1) * (3 + Math.random() * 3);
+        v.z = 0.2;
       }
     }
 
@@ -1136,11 +1495,17 @@
       }
     } else if (sp > 50) {
       for (const p of w.peds) {
-        if (p.dead || p.state === "knocked") continue;
+        if (p.dead || p.state === "knocked" || p.state === "tumble") continue;
         const d = U.dist(v.x, v.y, p.x, p.y);
         if (d < def.L * 0.42 + p.radius) {
           const nx = (p.x - v.x) / (d || 1), ny = (p.y - v.y) / (d || 1);
-          pedKnock(p, w, v.vx * 0.7 + nx * 90, v.vy * 0.7 + ny * 90, sp * 0.30 * def.mass);
+          const dmg = sp * 0.30 * def.mass;
+          if (sp > 170) {
+            // fauché de plein fouet : projeté en l'air avec l'élan du véhicule
+            pedTumble(p, w, v.vx * 0.8 + nx * 70, v.vy * 0.8 + ny * 70, 90 + sp * 0.35, dmg, "playercar");
+          } else {
+            pedKnock(p, w, v.vx * 0.7 + nx * 90, v.vy * 0.7 + ny * 90, dmg);
+          }
           if (v.driverKind === "player") w.onPlayerRanOver(p);
           v.vx *= 0.92; v.vy *= 0.92;
         }
@@ -1180,10 +1545,17 @@
     for (let i = 0; i < 16; i++) w.addParticle("smoke", v.x + (Math.random() - 0.5) * 40, v.y + (Math.random() - 0.5) * 24, 3);
     for (let i = 0; i < 12; i++) w.addParticle("debris", v.x, v.y, 1);
     w.addParticle("ring", v.x, v.y, 1);
-    // dégâts de zone
+    // dégâts de zone + souffle : les survivants proches sont projetés
     for (const p of w.peds) {
+      if (p.dead) continue;
       const d = U.dist(v.x, v.y, p.x, p.y);
-      if (d < 95) pedTakeDamage(p, w, 80 - d * 0.5, v.lastDamager === "player" ? "player" : "explosion", v.x, v.y);
+      if (d >= 95) continue;
+      pedTakeDamage(p, w, 80 - d * 0.5, v.lastDamager === "player" ? "player" : "explosion", v.x, v.y);
+      if (!p.dead && d < 78) {
+        const nx = (p.x - v.x) / (d || 1), ny = (p.y - v.y) / (d || 1);
+        const force = (1 - d / 78) * 260;
+        pedTumble(p, w, nx * force, ny * force, 120 + force * 0.5, 0);
+      }
     }
     for (const o of w.vehicles) {
       if (o === v || o.wreck) continue;
@@ -1193,7 +1565,15 @@
     const pl = w.player;
     const dp = U.dist(v.x, v.y, pl.x, pl.y);
     if (pl.vehicle === v) w.hurtPlayer(200, null);
-    else if (dp < 95) w.hurtPlayer(70 - dp * 0.5, null);
+    else if (dp < 95) {
+      w.hurtPlayer(70 - dp * 0.5, null);
+      // souffle : le joueur à pied est projeté en arrière
+      if (!pl.vehicle && !pl.dead && !pl.swimming && dp < 80) {
+        const nx = (pl.x - v.x) / (dp || 1), ny = (pl.y - v.y) / (dp || 1);
+        const force = (1 - dp / 80) * 240;
+        tossPlayer(pl, w, nx * force, ny * force, 110 + force * 0.5);
+      }
+    }
     w.onVehicleExploded(v);
   }
 
@@ -1639,19 +2019,35 @@
   function drawVehicle(ctx, v, w) {
     // un bateau qui passe sous un pont du canal disparaît sous le tablier
     if (v.def.water && M().isUnderBridge(v.x, v.y)) return;
+    if (v.sunk) return; // coulé : hors de vue sous l'eau
 
+    const cam = G.Camera;
+    const airborne = v.z > 0.5;
+    let sc = 1;
+    if (airborne) sc = airProject(v, cam.x, cam.y, _air);
+    else { _air.x = v.x; _air.y = v.y; }
+    const alpha = v.sinkT > 0 ? U.clamp(v.sinkT / 2.4, 0.15, 1) : 1;
+
+    // ombre portée au sol (à la vraie position, rétrécit avec la hauteur)
+    const shs = airborne ? 1 / (1 + v.z * 0.02) : 1;
     ctx.save();
     ctx.translate(v.x, v.y);
-    // ombre (sur l'eau : reflet sombre plus serré)
-    ctx.save();
     ctx.rotate(v.angle);
+    ctx.globalAlpha = alpha * (airborne ? 0.5 : 1);
     ctx.fillStyle = v.def.water ? "rgba(6,20,26,0.35)" : "rgba(10,8,20,0.30)";
     ctx.beginPath();
-    ctx.ellipse(2, 3, v.def.L * (v.def.water ? 0.46 : 0.52), v.def.W * (v.def.water ? 0.5 : 0.62), 0, 0, U.TAU);
+    ctx.ellipse(2 * shs, 3 * shs, v.def.L * (v.def.water ? 0.46 : 0.52) * shs,
+                v.def.W * (v.def.water ? 0.5 : 0.62) * shs, 0, 0, U.TAU);
     ctx.fill();
     ctx.restore();
 
+    // corps (à la position surélevée, avec tonneau/chavirage éventuel)
+    ctx.save();
+    ctx.translate(_air.x, _air.y);
+    ctx.globalAlpha = alpha;
     ctx.rotate(v.angle);
+    if (v.roll) ctx.scale(1, Math.max(0.12, Math.cos(v.roll))); // tonneau : la caisse bascule
+    if (airborne && sc !== 1) ctx.scale(sc, sc);
     const spr = v.wreck ? wreckSprite(v.type, v.color) : S.vehicleSprite(v.type, v.color);
     ctx.drawImage(spr, 0, 0, spr.width, spr.height, -spr.lw / 2, -spr.lh / 2, spr.lw, spr.lh);
 
@@ -1947,6 +2343,14 @@
         p.vx = (Math.random() - 0.5) * 130; p.vy = (Math.random() - 0.5) * 130;
         p.maxLife = p.life = 0.35 + Math.random() * 0.25; p.size = 2.2 + Math.random() * 1.6;
         break;
+      case "dust":
+        p.vx = (Math.random() - 0.5) * 90; p.vy = (Math.random() - 0.5) * 90;
+        p.maxLife = p.life = 0.4 + Math.random() * 0.35; p.size = 4 + Math.random() * 5;
+        break;
+      case "bubble":
+        p.vx = (Math.random() - 0.5) * 24; p.vy = -18 - Math.random() * 22;
+        p.maxLife = p.life = 0.5 + Math.random() * 0.6; p.size = 1.6 + Math.random() * 2.4;
+        break;
     }
     return p;
   }
@@ -1959,6 +2363,8 @@
     if (p.type === "ring") p.size += 340 * dt;
     if (p.type === "cashpop") p.vy += 160 * dt;
     if (p.type === "debris") { p.vx *= 0.94; p.vy *= 0.94; p.spin += dt * 9; }
+    if (p.type === "dust") { p.size += 10 * dt; p.vx *= 0.92; p.vy *= 0.92; }
+    if (p.type === "bubble") { p.vx *= 0.95; }
     return true;
   }
 
@@ -2010,6 +2416,15 @@
       case "splash":
         ctx.fillStyle = "rgba(215,240,246," + (0.75 * a) + ")";
         ctx.beginPath(); ctx.arc(p.x, p.y, p.size * a + 0.6, 0, U.TAU); ctx.fill();
+        break;
+      case "dust":
+        ctx.fillStyle = "rgba(150,138,112," + (0.30 * a) + ")";
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, U.TAU); ctx.fill();
+        break;
+      case "bubble":
+        ctx.strokeStyle = "rgba(220,242,248," + (0.55 * a) + ")";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, U.TAU); ctx.stroke();
         break;
     }
   }

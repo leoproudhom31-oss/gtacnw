@@ -1020,7 +1020,9 @@
      c'est CE trick qui donne la vue « Chinatown Wars ».
      ========================================================= */
 
-  const EXTRUDE = 1 / 950; // intensité de la parallaxe verticale
+  const EXTRUDE = 1 / 820; // intensité de la parallaxe verticale : plus fort =
+                           // les bâtiments « penchent » davantage vers le bord,
+                           // pour un relief de ville plus marqué
 
   function elevate(px, py, h, camX, camY, out) {
     const f = h * EXTRUDE;
