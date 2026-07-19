@@ -42,9 +42,9 @@
           WU("Je rentre préparer le thé. Rejoins-moi là-bas, la marche te remettra les jambes en place. Et ouvre l'œil : les Requins du Port n'aiment pas les nouveaux visages.")
         ]},
         { type: "tuto", text: "Déplace-toi avec Z Q S D (ou W A S D / flèches). Maintiens Maj pour sprinter." },
-        { type: "goto", pos: [60, 118.5], r: 60, text: "Remonte la jetée jusqu'aux Docks de Fer" },
+        { type: "goto", pos: [155, 345], r: 60, text: "Remonte la jetée jusqu'aux Docks de Fer" },
         { type: "tuto", text: "Suis le trait VERT sur la minimap : c'est ton GPS. Le point doré est ta destination. Appuie sur C pour la grande carte." },
-        { type: "goto", pos: [65, 87], r: 120, text: "Traverse le pont du canal vers le nord" },
+        { type: "goto", pos: [157, 243], r: 120, text: "Traverse le pont du canal vers le nord" },
         { type: "dlg", lines: [
           SHARK("Hé, toi ! T'es sur le territoire des Requins, le touriste. Le péage, c'est tout ce que t'as dans les poches."),
           JIN("Mauvais jour, mauvais client. Passe ton chemin."),
@@ -52,14 +52,14 @@
         ]},
         { type: "checkpoint" },
         { type: "spawn", tag: "m1thugs", peds: [
-          { kind: "shark", pos: [64.2, 82.5], weapon: "fist" },
-          { kind: "shark", pos: [66.3, 82.2], weapon: "fist" }
+          { kind: "shark", pos: [156, 238], weapon: "fist" },
+          { kind: "shark", pos: [159, 237], weapon: "fist" }
         ]},
         { type: "tuto", text: "Combat : appuie sur ESPACE (ou clic) pour frapper. Jin se tourne automatiquement vers l'ennemi le plus proche." },
         { type: "kill", tag: "m1thugs", text: "Défends-toi contre les Requins du Port !" },
-        { type: "pickup", kind: "bat", pos: [65.2, 82.5], text: "Ramasse la batte qu'ils ont laissée tomber" },
+        { type: "pickup", kind: "bat", pos: [157, 238], text: "Ramasse la batte qu'ils ont laissée tomber" },
         { type: "toast", text: "La batte fait bien plus mal que les poings. Touche 2 pour la sortir." },
-        { type: "goto", pos: [68.5, 61.2], r: 46, text: "Rejoins le salon de thé de l'oncle Wu" },
+        { type: "goto", pos: [184, 188], r: 46, text: "Rejoins le salon de thé de l'oncle Wu" },
         { type: "dlg", lines: [
           WU("Te voilà ! On m'a déjà raconté ta petite danse sur le pont. Deux Requins au tapis… ta mère serait fière, ou horrifiée."),
           JIN("Ils ont commencé. C'est quoi le problème de ce gang ?"),
@@ -93,7 +93,7 @@
         ]},
         { type: "tuto", text: "Approche-toi d'une voiture et appuie sur E pour monter. Haut = accélérer, bas = freiner/reculer, ESPACE = frein à main. K = klaxon." },
         { type: "getVehicle", text: "Trouve un véhicule (E pour monter)" },
-        { type: "goto", pos: [74, 97.5], r: 80, text: "File à l'entrepôt 7, au sud du canal", vehicle: true },
+        { type: "goto", pos: [175, 290], r: 80, text: "File à l'entrepôt 7, au sud du canal", vehicle: true },
         { type: "wait", t: 2.5, text: "Chargement des caisses…" },
         { type: "loadCargo" },
         { type: "checkpoint" },
@@ -104,7 +104,7 @@
         { type: "wanted", n: 1 },
         { type: "timer", t: 110 },
         { type: "tuto", text: "Tu es RECHERCHÉ (étoiles en haut à droite). Hors de leur vue, les étoiles clignotent puis disparaissent. Neutraliser une patrouille toi-même fait aussi baisser la pression." },
-        { type: "goto", pos: [68.5, 64.5], r: 70, text: "Livre les caisses au salon de thé — sans détruire la voiture !", vehicle: true, needCargo: true },
+        { type: "goto", pos: [184, 190], r: 70, text: "Livre les caisses au salon de thé — sans détruire la voiture !", vehicle: true, needCargo: true },
         { type: "timerOff" },
         { type: "escape", text: "Sème la police avant de décharger les caisses" },
         { type: "dlg", lines: [
@@ -134,7 +134,7 @@
           JIN("Et tu veux que j'aille la chercher. Chez eux. Tout seul."),
           WU("Pas tout seul : avec un cadeau. Passe voir Long au Garage de l'Ouest, il te prépare quelque chose. Jin… cette mallette vaut plus que ma boutique. Ne reviens pas sans elle."),
         ]},
-        { type: "goto", pos: [29, 71.2], r: 50, text: "Va voir Long au Garage de l'Ouest" },
+        { type: "goto", pos: [64, 197], r: 50, text: "Va voir Long au Garage de l'Ouest" },
         { type: "dlg", lines: [
           LONG("Alors c'est toi, le neveu. Wu m'a dit : « équipe-le ». Tiens — un 9 mm propre, jamais servi. Enfin, presque jamais."),
           JIN("Un flingue. On parle toujours de thé, là ?"),
@@ -143,9 +143,9 @@
         { type: "give", weapon: "pistol", ammo: 45 },
         { type: "tuto", text: "Tir : ESPACE = visée automatique sur l'ennemi le plus proche. CLIC GAUCHE = tir vers la souris. Touches 1-4 ou Tab pour changer d'arme." },
         { type: "spawn", tag: "m3targets", peds: [
-          { kind: "shark", pos: [33.5, 71.5], dummy: true },
-          { kind: "shark", pos: [34.5, 69.8], dummy: true },
-          { kind: "shark", pos: [33.8, 68.2], dummy: true }
+          { kind: "shark", pos: [70, 197], dummy: true },
+          { kind: "shark", pos: [72, 194], dummy: true },
+          { kind: "shark", pos: [71, 191], dummy: true }
         ]},
         { type: "kill", tag: "m3targets", text: "Entraîne-toi sur les mannequins de Long" },
         { type: "dlg", lines: [
@@ -153,7 +153,7 @@
           JIN("La pêcherie Wang, c'est ça ? Au sud du canal."),
           LONG("C'est ça. Fais-leur goûter le thé de ton oncle.")
         ]},
-        { type: "goto", pos: [44.5, 96.6], r: 80, text: "Rends-toi à la pêcherie Wang, la planque des Requins" },
+        { type: "goto", pos: [106, 299], r: 80, text: "Rends-toi à la pêcherie Wang, la planque des Requins" },
         { type: "checkpoint" },
         { type: "dlg", lines: [
           SHARK("Le touriste du pont ! T'as perdu ton chemin, ou tu cherches ta deuxième raclée ?"),
@@ -161,14 +161,14 @@
           SHARK("LES GARS ! ON A DE LA VISITE !")
         ]},
         { type: "spawn", tag: "m3sharks", peds: [
-          { kind: "shark", pos: [42, 98.5], weapon: "pistol" },
-          { kind: "shark", pos: [47, 98.3], weapon: "fist" },
-          { kind: "shark", pos: [38.6, 102.5], weapon: "bat" },
-          { kind: "shark", pos: [49.4, 103.8], weapon: "pistol" },
-          { kind: "shark", pos: [44.5, 106.9], weapon: "fist" }
+          { kind: "shark", pos: [102, 295], weapon: "pistol" },
+          { kind: "shark", pos: [110, 294], weapon: "fist" },
+          { kind: "shark", pos: [98, 301], weapon: "bat" },
+          { kind: "shark", pos: [113, 303], weapon: "pistol" },
+          { kind: "shark", pos: [106, 308], weapon: "fist" }
         ]},
         { type: "kill", tag: "m3sharks", text: "Élimine les Requins du Port !" },
-        { type: "pickup", kind: "briefcase", pos: [44.5, 106.8], text: "Récupère la mallette de Wu" },
+        { type: "pickup", kind: "briefcase", pos: [106, 307], text: "Récupère la mallette de Wu" },
         { type: "dlg", lines: [
           JIN("La mallette… lourde, en plus. Évidemment, il y a des sirènes. Il y a TOUJOURS des sirènes."),
           RADIO("La fusillade s'entend depuis mon comptoir, Jin ! La police arrive — DISPARAIS. Et la mallette reste SÈCHE, compris ?")
@@ -176,7 +176,7 @@
         { type: "wanted", n: 2 },
         { type: "tuto", text: "2 étoiles : les patrouilles te cherchent activement. Prends une voiture, casse la ligne de vue, et laisse les étoiles s'éteindre." },
         { type: "escape", text: "Sème la police !" },
-        { type: "goto", pos: [68.5, 61.2], r: 46, text: "Rapporte la mallette au salon de thé" },
+        { type: "goto", pos: [184, 188], r: 46, text: "Rapporte la mallette au salon de thé" },
         { type: "dlg", lines: [
           WU("Ma mallette ! Intacte ! Petit, tu viens de rembourser dix ans de cadeaux d'anniversaire oubliés."),
           JIN("Les Requins ne vont pas en rester là, oncle Wu. J'ai vu leur regard."),
@@ -206,10 +206,10 @@
           LONG("Trouve une caisse banale et poste-toi près du canal, rive nord. Le van ne va pas tarder.")
         ]},
         { type: "getVehicle", text: "Trouve un véhicule banal (E pour monter)" },
-        { type: "goto", pos: [17, 79], r: 140, text: "Poste-toi près du canal, rive nord-ouest", vehicle: true },
+        { type: "goto", pos: [45, 243], r: 140, text: "Poste-toi près du canal, rive nord-ouest", vehicle: true },
         { type: "checkpoint" },
         { type: "spawnRoute", id: "sharkvan", vtype: "van", color: "#158fa0",
-          from: [14, 78.5], to: [107, 97.5], cruise: 105, tag: "m4van" },
+          from: [38, 240], to: [310, 290], cruise: 105, tag: "m4van" },
         { type: "dlg", lines: [
           JIN("Un van bleu lagon, des caisses qui débordent… c'est lui. Allez, mon grand, montre-moi ta cachette."),
           LONG("(radio) Reste à distance : s'il te repère, tout tombe à l'eau. S'il sort de ton champ de vision trop longtemps, pareil.")
@@ -223,18 +223,18 @@
           JIN("La partie où leur stock devient un feu de camp.")
         ]},
         { type: "spawnTargets", tag: "m4crates", vehicles: [
-          { type: "van", pos: [103, 100.5], angle: 0, color: "#158fa0" },
-          { type: "van", pos: [105.5, 103.5], angle: 1.2, color: "#0d7885" },
-          { type: "van", pos: [101, 105.5], angle: 0.5, color: "#158fa0" }
+          { type: "van", pos: [305, 295], angle: 0, color: "#158fa0" },
+          { type: "van", pos: [310, 300], angle: 1.2, color: "#0d7885" },
+          { type: "van", pos: [302, 303], angle: 0.5, color: "#158fa0" }
         ]},
         { type: "spawn", tag: "m4guards", peds: [
-          { kind: "shark", pos: [100, 99.5], weapon: "pistol" },
-          { kind: "shark", pos: [106.5, 101.5], weapon: "bat" },
-          { kind: "shark", pos: [103, 107], weapon: "pistol" }
+          { kind: "shark", pos: [300, 293], weapon: "pistol" },
+          { kind: "shark", pos: [313, 298], weapon: "bat" },
+          { kind: "shark", pos: [306, 307], weapon: "pistol" }
         ]},
         { type: "destroy", tag: "m4crates", text: "Détruis les trois vans de contrebande !" },
         { type: "escape", text: "Quitte la zone et fais-toi oublier" },
-        { type: "goto", pos: [29, 71.2], r: 50, text: "Retourne au Garage de l'Ouest" },
+        { type: "goto", pos: [64, 197], r: 50, text: "Retourne au Garage de l'Ouest" },
         { type: "dlg", lines: [
           LONG("Trois vans, un dépôt grillé et une colonne de fumée visible depuis mon comptoir. Discret, le neveu."),
           JIN("La filature était discrète. La suite était… expressive."),
@@ -267,7 +267,7 @@
         { type: "getVehicle", text: "Trouve un véhicule pour escorter le van (E pour monter)" },
         { type: "checkpoint" },
         { type: "spawnRoute", id: "wuvan", vtype: "van", color: "#6d6875",
-          from: [68, 64.5], to: [60, 118.5], cruise: 82, escort: true, hp: 300, tag: "m5van" },
+          from: [184, 190], to: [155, 370], cruise: 82, escort: true, hp: 300, tag: "m5van" },
         { type: "dlg", lines: [
           RADIO("Le van démarre, Jin. Reste à portée : s'il te distance, il t'attendra — mais les Requins, eux, n'attendront pas.")
         ]},
@@ -283,14 +283,14 @@
           SHARK("LE VOILÀ ! La mallette est sur la jetée — TOUS SUR EUX !")
         ]},
         { type: "spawn", tag: "m5finale", peds: [
-          { kind: "shark", pos: [57, 119.5], weapon: "pistol" },
-          { kind: "shark", pos: [63, 119.8], weapon: "smg" },
-          { kind: "shark", pos: [59, 117.5], weapon: "bat" },
-          { kind: "shark", pos: [61.5, 121.5], weapon: "pistol" }
+          { kind: "shark", pos: [148, 368], weapon: "pistol" },
+          { kind: "shark", pos: [162, 369], weapon: "smg" },
+          { kind: "shark", pos: [152, 364], weapon: "bat" },
+          { kind: "shark", pos: [158, 373], weapon: "pistol" }
         ]},
         { type: "kill", tag: "m5finale", text: "Repousse l'assaut final des Requins !" },
         { type: "escape", text: "Le bateau largue les amarres — fais le mort quelques instants" },
-        { type: "goto", pos: [68.5, 61.2], r: 46, text: "Retourne fêter ça au salon de thé" },
+        { type: "goto", pos: [184, 188], r: 46, text: "Retourne fêter ça au salon de th��" },
         { type: "give", weapon: "shotgun", ammo: 16 },
         { type: "dlg", lines: [
           WU("Le bateau est parti, la mallette avec, et mon serveur me réclame une prime de risque. Une excellente soirée."),
