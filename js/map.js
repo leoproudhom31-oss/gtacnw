@@ -8,7 +8,7 @@
 "use strict";
 (function (G) {
 
-  const U = G.U, S = G.Sprites, MD = G.MapData, B = G.Buildings;
+  const U = G.U, S = G.Sprites, MD = G.MapData, B = G.Buildings, TX = G.Tex;
   const INK_MAP = S.INK || "#1a1424";
 
   const T = MD.T;
@@ -560,12 +560,30 @@
       }
     }
 
-    // lanterns in lotus/market
+    // lanternes + étals de marché en zone lotus / bazar
     if (b.district === "lotus" || b.district === "market") {
       for (let k = 0; k < 2; k++) {
         const x = U.rrange(rng, b.x0 + 1, b.x1) * T;
         const y = U.rrange(rng, b.y0 + 1, b.y1) * T;
         if (get(Math.floor(x / T), Math.floor(y / T)) !== BUILDING) addLantern(x, y);
+      }
+      // cageots de produits + étals colorés le long des façades
+      for (let k = 0; k < 3; k++) {
+        if (rng() > 0.55) continue;
+        const x = U.rrange(rng, b.x0 + 0.5, b.x1 + 0.5) * T;
+        const y = U.rrange(rng, b.y0 + 0.5, b.y1 + 0.5) * T;
+        const gt = get(Math.floor(x / T), Math.floor(y / T));
+        if (gt !== PLAZA && gt !== SIDEWALK) continue;
+        if (rng() < 0.4) {
+          const c1 = U.pick(rng, ["#c0392b", "#1e8449", "#2874a6", "#b9770e"]);
+          const p = { type: "stall", x, y, c1, c2: "#f5f0e6" };
+          structures.push({ x, y, r: 40, draw: (ctx, cx, cy) => S.PROPS.stall(ctx, p, cx, cy) });
+          addSolid({ shape: "rect", x: x - 15, y: y - 10, w: 30, h: 20 });
+        } else {
+          flatProps.push({ type: "produce", x, y, a: (rng() - 0.5) * 0.5,
+            pc: U.pick(rng, [["#e8622b", "#e0b020", "#c0392b"], ["#7cb156", "#e0b020", "#b9770e"], ["#c0392b", "#8e44ad", "#e8622b"]]) });
+          addSolid({ shape: "rect", x: x - 10, y: y - 7, w: 20, h: 14 });
+        }
       }
     }
   }
@@ -798,11 +816,11 @@
         if (s.v) {
           if (insideAnyRoundabout(s.at + w / 2, t, 1.5)) continue;
           const x = side < 0 ? (s.at - 0.35) * T : (s.at + w + 0.35) * T;
-          placeLamp(x, (t + 0.5) * T, rng);
+          placeStreetProp(x, (t + 0.5) * T, rng);
         } else {
           if (insideAnyRoundabout(t, s.at + w / 2, 1.5)) continue;
           const y = side < 0 ? (s.at - 0.35) * T : (s.at + w + 0.35) * T;
-          placeLamp((t + 0.5) * T, y, rng);
+          placeStreetProp((t + 0.5) * T, y, rng);
         }
       }
     }
@@ -817,20 +835,42 @@
     }
   }
 
-  function placeLamp(x, y, rng) {
+  // structure (prop en élévation, trié par profondeur) / prop plat (au sol)
+  function addStructProp(type, x, y, extra, r) {
+    const e = extra || {};
+    structures.push({ x, y, r: r || 46, draw: (ctx, cx, cy) => S.PROPS[type](ctx, Object.assign({ x, y }, e), cx, cy) });
+    addSolid({ shape: "circle", x, y, r: 3 });
+  }
+  function addFlatProp(type, x, y, extra, solidR) {
+    flatProps.push(Object.assign({ type, x, y }, extra || {}));
+    if (solidR) addSolid({ shape: "circle", x, y, r: solidR });
+  }
+
+  // mobilier urbain diversifié, à saveur de quartier
+  function placeStreetProp(x, y, rng) {
     const tx = Math.floor(x / T), ty = Math.floor(y / T);
     const t = get(tx, ty);
     if (t !== SIDEWALK && t !== PLAZA && t !== DOCK) return;
-    if (rng() < 0.1) {
-      flatProps.push({ type: "hydrant", x, y });
-      addSolid({ shape: "circle", x, y, r: 4 });
-    } else if (rng() < 0.08) {
-      flatProps.push({ type: "trash", x, y });
-      addSolid({ shape: "circle", x, y, r: 5 });
-    } else {
-      structures.push({ x, y, r: 46, draw: (ctx, cx, cy) => S.PROPS.lamp(ctx, { x, y }, cx, cy) });
-      addSolid({ shape: "circle", x, y, r: 3 });
-    }
+    const d = districtAt(x, y);
+    const dk = d ? d.key : "";
+    const oriental = dk === "lotus" || dk === "market";
+    const office = dk === "downtown" || dk === "finance";
+    const resid = dk === "resid" || dk === "resid_n" || dk === "hills" || dk === "campus";
+    const roll = rng();
+
+    if (roll < 0.50) return addStructProp("lamp", x, y);
+    if (roll < 0.57 && oriental) return addStructProp("lantern", x, y, null, 50);
+    if (roll < 0.65) return addFlatProp("hydrant", x, y, null, 4);
+    if (roll < 0.72) return addFlatProp("trash", x, y, null, 5);
+    if (roll < 0.78) return addFlatProp("bollard", x, y, null, 4);
+    if (roll < 0.84) return addFlatProp("planter", x, y, null, 8);
+    if (roll < 0.88 && resid) return addFlatProp("mailbox", x, y, null, 5);
+    if (roll < 0.92)
+      return addFlatProp("bicycle", x, y, { a: rng() * U.TAU, c: U.pick(rng, ["#2874a6", "#c0392b", "#1e8449", "#b9770e"]) }, 6);
+    if (roll < 0.955 && office) return addStructProp("vending", x, y, null, 40);
+    if (roll < 0.975 && office) return addStructProp("phonebooth", x, y, null, 46);
+    if (roll < 0.99) return addFlatProp("cone", x, y, null, 3);
+    return addStructProp("busstop", x, y, { a: 0 }, 60);
   }
 
   function genParkedCars(rng) {
@@ -941,18 +981,36 @@
     ctx.restore();
   }
 
+  const MAT_NAME = {
+    [WATER]: "water", [GRASS]: "grass", [SIDEWALK]: "sidewalk", [ROAD]: "road",
+    [PLAZA]: "plaza", [DOCK]: "dock", [PATH]: "path", [BUILDING]: "building", [SAND]: "sand"
+  };
+
   function drawTile(ctx, gx, gy, px, py) {
     const t = get(gx, gy);
     const h = tileHash(gx, gy);
-    // elevation tint
-    const elev = inB(gx, gy) ? elevation[idx(gx, gy)] : 0;
-    ctx.fillStyle = TILE_COLORS[t];
-    ctx.fillRect(px, py, T, T);
-    if (elev > 0 && t === GRASS) {
-      ctx.fillStyle = "rgba(40,80,30," + (elev / 50) + ")";
-      ctx.fillRect(px, py, T, T);
+
+    // tablier de pont : platelage spécifique (pas de l'asphalte)
+    if (t === ROAD && bridgeF[idx(gx, gy)]) {
+      ctx.fillStyle = "#4a505c"; ctx.fillRect(px, py, T, T);
+      ctx.strokeStyle = "rgba(20,24,30,0.4)"; ctx.lineWidth = 1;
+      for (let k = 1; k < 3; k++) { ctx.beginPath(); ctx.moveTo(px, py + k * T / 3); ctx.lineTo(px + T, py + k * T / 3); ctx.stroke(); }
+      ctx.fillStyle = "#20242c";
+      if (get(gx - 1, gy) === WATER || (get(gx - 1, gy) === DOCK && !bridgeF[idx(gx - 1, gy)])) ctx.fillRect(px, py, 4, T);
+      if (get(gx + 1, gy) === WATER || (get(gx + 1, gy) === DOCK && !bridgeF[idx(gx + 1, gy)])) ctx.fillRect(px + T - 4, py, 4, T);
+      return;
     }
 
+    // texture de base ultra-détaillée (moteur paramétrique)
+    TX.paintTile(ctx, px, py, T, T, gx, gy, MAT_NAME[t] || "building");
+
+    // relief (herbe surélevée = collines)
+    if (t === GRASS) {
+      const elev = inB(gx, gy) ? elevation[idx(gx, gy)] : 0;
+      if (elev > 0) { ctx.fillStyle = "rgba(40,80,30," + (elev / 60) + ")"; ctx.fillRect(px, py, T, T); }
+    }
+
+    // détails dépendant du voisinage
     switch (t) {
       case WATER: {
         ctx.strokeStyle = "rgba(232,246,248,0.45)"; ctx.lineWidth = 2;
@@ -963,7 +1021,7 @@
         if (get(gx + 1, gy) !== WATER) { ctx.moveTo(px + T - 3, py); ctx.lineTo(px + T - 3, py + T); }
         ctx.stroke();
         if (h < 0.3) {
-          ctx.strokeStyle = "rgba(122,215,255,0.25)"; ctx.lineWidth = 1.5;
+          ctx.strokeStyle = "rgba(122,215,255,0.22)"; ctx.lineWidth = 1.5;
           ctx.beginPath();
           const wy = py + 10 + h * 90;
           ctx.moveTo(px + 8, wy); ctx.quadraticCurveTo(px + 16, wy - 4, px + 24, wy);
@@ -972,19 +1030,8 @@
         }
         break;
       }
-      case GRASS: {
-        ctx.fillStyle = h < 0.5 ? "rgba(110,160,70,0.5)" : "rgba(150,190,100,0.35)";
-        const n = 3 + (h * 5) | 0;
-        for (let i = 0; i < n; i++) {
-          const hx = tileHash(gx * 7 + i, gy * 3 + i);
-          ctx.fillRect(px + hx * 42, py + tileHash(gx + i, gy * 11) * 42, 4, 3);
-        }
-        break;
-      }
       case SIDEWALK: {
-        ctx.strokeStyle = "rgba(120,110,90,0.35)"; ctx.lineWidth = 1;
-        ctx.strokeRect(px + 0.5, py + 0.5, T - 1, T - 1);
-        ctx.beginPath(); ctx.moveTo(px + T / 2, py); ctx.lineTo(px + T / 2, py + T); ctx.stroke();
+        // bordure de trottoir renforcée côté chaussée
         ctx.strokeStyle = "#8f8775"; ctx.lineWidth = 3; ctx.beginPath();
         if (get(gx + 1, gy) === ROAD) { ctx.moveTo(px + T - 1.5, py); ctx.lineTo(px + T - 1.5, py + T); }
         if (get(gx - 1, gy) === ROAD) { ctx.moveTo(px + 1.5, py); ctx.lineTo(px + 1.5, py + T); }
@@ -994,40 +1041,24 @@
         break;
       }
       case ROAD: {
-        if (bridgeF[idx(gx, gy)]) {
-          ctx.fillStyle = "#4a505c"; ctx.fillRect(px, py, T, T);
-          ctx.fillStyle = "#20242c";
-          if (get(gx - 1, gy) === WATER || (get(gx - 1, gy) === DOCK && !bridgeF[idx(gx - 1, gy)]))
-            ctx.fillRect(px, py, 4, T);
-          if (get(gx + 1, gy) === WATER || (get(gx + 1, gy) === DOCK && !bridgeF[idx(gx + 1, gy)]))
-            ctx.fillRect(px + T - 4, py, 4, T);
-        } else if (h < 0.04) {
-          ctx.fillStyle = "#2f333d";
-          ctx.beginPath(); ctx.arc(px + 24, py + 24, 6, 0, Math.PI * 2); ctx.fill();
-          ctx.strokeStyle = "#1c1f26"; ctx.lineWidth = 1.5;
-          ctx.beginPath(); ctx.arc(px + 24, py + 24, 6, 0, Math.PI * 2); ctx.stroke();
-        } else if (h > 0.96) {
-          ctx.fillStyle = "rgba(28,30,38,0.55)";
-          ctx.beginPath(); ctx.ellipse(px + 20 + h * 8, py + 26, 9, 6, h * 3, 0, Math.PI * 2); ctx.fill();
-        }
-        break;
-      }
-      case PLAZA: {
-        ctx.strokeStyle = "rgba(140,120,90,0.4)"; ctx.lineWidth = 1;
-        ctx.strokeRect(px + 0.5, py + 0.5, T - 1, T - 1);
-        if (((gx + gy) & 1) === 0) {
-          ctx.fillStyle = "rgba(190,165,125,0.35)"; ctx.fillRect(px, py, T, T);
+        // plaque d'égout détaillée (rare)
+        if (h < 0.03) {
+          const cx = px + 24, cy = py + 24;
+          ctx.fillStyle = "#33373f"; ctx.strokeStyle = "#1a1d24"; ctx.lineWidth = 1.4;
+          ctx.beginPath(); ctx.arc(cx, cy, 6.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+          ctx.strokeStyle = "rgba(15,17,22,0.7)"; ctx.lineWidth = 0.7;
+          for (let a = 0; a < 8; a++) {
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(a / 8 * Math.PI * 2) * 2, cy + Math.sin(a / 8 * Math.PI * 2) * 2);
+            ctx.lineTo(cx + Math.cos(a / 8 * Math.PI * 2) * 5.5, cy + Math.sin(a / 8 * Math.PI * 2) * 5.5);
+            ctx.stroke();
+          }
+          ctx.fillStyle = "rgba(80,86,96,0.6)";
+          for (let a = 0; a < 6; a++) ctx.fillRect(cx + Math.cos(a / 6 * Math.PI * 2) * 5.5 - 0.7, cy + Math.sin(a / 6 * Math.PI * 2) * 5.5 - 0.7, 1.4, 1.4);
         }
         break;
       }
       case DOCK: {
-        ctx.strokeStyle = "rgba(70,75,80,0.5)"; ctx.lineWidth = 1.5;
-        if (gx % 3 === 0) { ctx.beginPath(); ctx.moveTo(px + 0.5, py); ctx.lineTo(px + 0.5, py + T); ctx.stroke(); }
-        if (gy % 3 === 0) { ctx.beginPath(); ctx.moveTo(px, py + 0.5); ctx.lineTo(px + T, py + 0.5); ctx.stroke(); }
-        if (h > 0.9) {
-          ctx.fillStyle = "rgba(60,50,45,0.4)";
-          ctx.beginPath(); ctx.ellipse(px + 24, py + 20, 10, 7, h, 0, Math.PI * 2); ctx.fill();
-        }
         ctx.fillStyle = "#5f6d5f";
         if (get(gx, gy + 1) === WATER) ctx.fillRect(px, py + T - 4, T, 4);
         if (get(gx, gy - 1) === WATER) ctx.fillRect(px, py, T, 4);
@@ -1035,22 +1066,7 @@
         if (get(gx - 1, gy) === WATER) ctx.fillRect(px, py, 4, T);
         break;
       }
-      case PATH: {
-        ctx.fillStyle = "rgba(160,130,80,0.3)";
-        for (let i = 0; i < 4; i++)
-          ctx.fillRect(px + tileHash(gx + i, gy) * 40, py + tileHash(gx, gy + i) * 40, 5, 4);
-        break;
-      }
       case SAND: {
-        for (let i = 0; i < 7; i++) {
-          const hx = tileHash(gx * 5 + i, gy * 9 + i), hy = tileHash(gx * 3 + i * 7, gy + i * 3);
-          ctx.fillStyle = hx < 0.5 ? "rgba(200,170,110,0.5)" : "rgba(255,245,220,0.55)";
-          ctx.fillRect(px + hx * 44, py + hy * 44, 2.4, 2);
-        }
-        if (h > 0.93) {
-          ctx.fillStyle = "#f5ead6";
-          ctx.beginPath(); ctx.arc(px + 20 + h * 14, py + 26, 2.4, Math.PI, Math.PI * 2); ctx.fill();
-        }
         ctx.fillStyle = "rgba(150,120,80,0.35)";
         if (get(gx, gy - 1) === WATER) ctx.fillRect(px, py, T, 9);
         if (get(gx, gy + 1) === WATER) ctx.fillRect(px, py + T - 9, T, 9);
@@ -1058,11 +1074,9 @@
         if (get(gx + 1, gy) === WATER) ctx.fillRect(px + T - 9, py, 9, T);
         break;
       }
-      case BUILDING: {
-        ctx.fillStyle = "#241f2e"; ctx.fillRect(px, py, T, T);
-        break;
-      }
     }
+
+    // ombre douce au pied des bâtiments
     if (t !== BUILDING && t !== WATER) {
       ctx.fillStyle = "rgba(18,14,28,0.16)";
       if (get(gx, gy - 1) === BUILDING) ctx.fillRect(px, py, T, 7);
