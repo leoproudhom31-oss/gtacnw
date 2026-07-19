@@ -266,7 +266,7 @@
     { type: "boat",  tx: 80,   ty: 251, a: 0,          c: "#4a6d8c" },
     { type: "skiff", tx: 190,  ty: 250, a: Math.PI,    c: "#8c4a5a" },
     { type: "boat",  tx: 310,  ty: 251, a: 0.1,        c: "#5f8c4a" },
-    { type: "skiff", tx: 155,  ty: 370, a: -0.15,      c: "#3d6d99" },
+    { type: "skiff", tx: 148,  ty: 377, a: -Math.PI/2,  c: "#3d6d99" },
     { type: "boat",  tx: 55,   ty: 370, a: 0.3,        c: "#8c6d3f" },
     { type: "boat",  tx: 290,  ty: 5,   a: Math.PI * 0.92, c: "#d0567a" },
     { type: "boat",  tx: 250,  ty: 370, a: 0.5,        c: "#5a8c6d" },
@@ -327,7 +327,7 @@
 
   // Points d'intérêt (seront calculés en px par le moteur après placement)
   const POI_DEFS = {
-    spawn:      { tx: 155, ty: 378 },
+    spawn:      { tx: 151, ty: 377 },
     teahouse:   { tx: 184, ty: 186 },
     garage:     { tx: 64,  ty: 195 },
     police:     { tx: 34,  ty: 106 },
@@ -337,7 +337,7 @@
     market:     { tx: 175, ty: 195 },
     pagoda:     { tx: 320, ty: 180 },
     beach:      { tx: 300, ty: 9   },
-    debarcadere:{ tx: 155, ty: 365 },
+    debarcadere:{ tx: 151, ty: 373 },
     gateN:      { tx: 180, ty: 157 },
     tower:      { tx: 73,  ty: 81  },
     casino:     { tx: 160, ty: 84  }

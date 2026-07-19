@@ -454,7 +454,13 @@
     for (const x of lp.canalNorth) addLadder(x, cy0 - 1, 0);
     for (const x of lp.canalSouth) addLadder(x, cy1 + 1, 1);
     for (const x of lp.southShore) addLadder(x, MH - 14, 0);
-    for (const [px, py] of lp.piers) addLadder(px, py, 0);
+    // jetées : bande de 4 tuiles de large, l'eau borde les côtés est/ouest
+    // (le sud d'une échelle posée au milieu de la jetée est encore de la
+    // jetée — une échelle « plein sud » n'y trouverait jamais d'eau).
+    for (const [px, py] of lp.piers) {
+      addLadder(px, py, 2);     // bord ouest
+      addLadder(px + 3, py, 3); // bord est
+    }
   }
 
   /* ---------- trafic nautique ---------- */
