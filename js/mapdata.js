@@ -11,19 +11,51 @@
   const MW = 384, MH = 384;
   const WPX = MW * T, HPX = MH * T;
 
-  // Axes routiers verticaux (colonne de tuile, chaque route = 2 tuiles de large)
+  // -----------------------------------------------------------
+  // RÉSEAU ROUTIER « À LA FRANÇAISE »
+  // Grille IRRÉGULIÈRE (espacements variés, blocs de tailles
+  // différentes), boulevards larges, ronds-points avec îlot
+  // central, et avenues diagonales rayonnant en étoile depuis la
+  // place centrale. Séparé du moteur qui le réalise (map.js).
+  // -----------------------------------------------------------
+
+  // Axes verticaux — espacements irréguliers (16 à 28 tuiles).
   const VROADS = [
-    12, 30, 48, 66, 84, 102, 120, 138, 156, 174,
-    192, 210, 228, 246, 264, 282, 300, 318, 336, 354, 372
+    12, 30, 50, 67, 90, 108, 134, 157, 178, 206, 230, 253, 276, 304, 330, 356, 372
   ];
-  // Axes routiers horizontaux
+  // Axes horizontaux — irréguliers, avec un trou pour le canal.
   const HROADS = [
-    12, 30, 48, 66, 84, 102, 120, 138, 156, 174,
-    192, 210, 228, 246, 264, 282, 300, 318, 336, 354, 372
+    12, 30, 52, 67, 84, 108, 130, 157, 178, 200, 222, 262, 284, 306, 330, 354, 372
   ];
 
-  // Routes qui traversent le canal (ponts)
-  const BRIDGE_VROADS = [12, 48, 84, 120, 156, 192, 228, 264, 300, 336, 372];
+  // Boulevards : axes plus larges (4 tuiles = 2×2 voies + terre-plein).
+  const BOULEVARDS_V = [67, 157, 253];
+  const BOULEVARDS_H = [84, 157, 306];
+
+  // Largeur par défaut d'une rue (tuiles). Les boulevards font 4.
+  const STREET_W = 2, BLVD_W = 4;
+
+  // Ronds-points : centre (tuiles), rayon extérieur, monument, nom.
+  // Placés à des croisements d'axes ; des avenues y rayonnent.
+  const ROUNDABOUTS = [
+    { cx: 158.0, cy: 158.0, r: 9, island: "fountain", name: "Place du Jade" },
+    { cx: 68.0,  cy: 108.5, r: 6, island: "statue",   name: "Rond-point des Lanternes" },
+    { cx: 254.0, cy: 108.5, r: 6, island: "obelisk",  name: "Place Meridian" },
+    { cx: 68.0,  cy: 222.5, r: 6, island: "garden",   name: "Place du Marché" },
+    { cx: 254.0, cy: 222.5, r: 6, island: "garden",   name: "Place du Lotus" }
+  ];
+
+  // Avenues diagonales (percées haussmanniennes) : de la place
+  // centrale vers les quatre ronds-points satellites → une étoile.
+  const DIAGONALS = [
+    { x0: 158, y0: 158, x1: 68,  y1: 108.5, name: "Avenue du Nord-Ouest" },
+    { x0: 158, y0: 158, x1: 254, y1: 108.5, name: "Avenue du Nord-Est" },
+    { x0: 158, y0: 158, x1: 68,  y1: 222.5, name: "Avenue du Sud-Ouest" },
+    { x0: 158, y0: 158, x1: 254, y1: 222.5, name: "Avenue du Sud-Est" }
+  ];
+
+  // Routes qui traversent le canal (ponts) — sous-ensemble de VROADS.
+  const BRIDGE_VROADS = [12, 67, 108, 157, 206, 253, 304, 356];
 
   // Canal : bande d'eau horizontale
   const CANAL = { y0: 248, y1: 254 }; // tuiles 248-254 (7 tuiles de large)
@@ -390,6 +422,8 @@
   G.MapData = {
     T, MW, MH, WPX, HPX,
     VROADS, HROADS, BRIDGE_VROADS,
+    BOULEVARDS_V, BOULEVARDS_H, STREET_W, BLVD_W,
+    ROUNDABOUTS, DIAGONALS,
     CANAL, CANAL_CONFIG,
     DISTRICTS,
     SPECIAL_BUILDINGS, BUILDING_PALETTES,

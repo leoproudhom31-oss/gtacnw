@@ -9,6 +9,7 @@
 (function (G) {
 
   const U = G.U, S = G.Sprites, MD = G.MapData, B = G.Buildings;
+  const INK_MAP = S.INK || "#1a1424";
 
   const T = MD.T;
   const MW = MD.MW, MH = MD.MH;
@@ -44,6 +45,9 @@
   const beachSeats = [];
 
   const segs = [];
+  const roundabouts = [];   // { cx, cy, rOut, islandR, island, name }
+  const diagonals = [];     // { ax, ay, bx, by } en px, pour le rendu
+  const ringTiles = new Set();
 
   const POI = {};
 
@@ -85,6 +89,7 @@
     genTerrain(rng);
     genElevation();
     genRoads();
+    genRoundaboutFeatures(rng);
     genSidewalks();
     genBeach(rng);
     reserveSpecials();
@@ -148,37 +153,52 @@
     }
   }
 
-  function addSeg(v, at, from, to) { segs.push({ v, at, from, to }); }
+  function addSeg(v, at, from, to, w) { segs.push({ v, at, from, to, w: w || MD.STREET_W }); }
 
   function genRoads() {
     const cy0 = MD.CANAL_CONFIG.waterY0, cy1 = MD.CANAL_CONFIG.waterY1;
     const bridges = new Set(MD.BRIDGE_VROADS);
+    const blvdV = new Set(MD.BOULEVARDS_V), blvdH = new Set(MD.BOULEVARDS_H);
 
+    // 1. axes verticaux (largeur variable : boulevards = 4)
     for (const x of MD.VROADS) {
+      const w = blvdV.has(x) ? MD.BLVD_W : MD.STREET_W;
       if (bridges.has(x)) {
-        addSeg(true, x, 12, MW - 13);
+        addSeg(true, x, 12, MW - 13, w);
       } else {
-        addSeg(true, x, 12, cy0 - 3);
-        addSeg(true, x, cy1 + 3, MW - 13);
+        addSeg(true, x, 12, cy0 - 3, w);
+        addSeg(true, x, cy1 + 3, MW - 13, w);
       }
     }
+    // 2. axes horizontaux (sautent la bande du canal)
     for (const y of MD.HROADS) {
       if (y >= cy0 - 2 && y <= cy1 + 2) continue;
-      addSeg(false, y, 12, MW - 13);
+      const w = blvdH.has(y) ? MD.BLVD_W : MD.STREET_W;
+      addSeg(false, y, 12, MW - 13, w);
     }
+    // 3. peinture des segments droits (les croisements deviennent des
+    //    carrefours à masques composés)
+    for (const s of segs) paintSeg(s);
 
-    for (const s of segs) {
-      if (s.v) {
-        for (let y = s.from; y <= s.to + 1; y++) {
-          paintRoad(s.at, y, LS);
-          paintRoad(s.at + 1, y, LN);
-        }
-      } else {
-        for (let x = s.from; x <= s.to + 1; x++) {
-          paintRoad(x, s.at, LW);
-          paintRoad(x, s.at + 1, LE);
-        }
-      }
+    // 4. ronds-points : on évide le croisement et on pose un anneau à
+    //    sens giratoire (masques tangentiels anti-horaires, France)
+    for (const rb of MD.ROUNDABOUTS) carveRoundabout(rb);
+
+    // 5. avenues diagonales (percées en étoile depuis la place centrale)
+    for (const d of MD.DIAGONALS) paintDiagonal(d);
+
+    // 6. raccorde les sorties des anneaux aux voies sortantes
+    roundaboutExitPass();
+  }
+
+  function paintSeg(s) {
+    const w = s.w || MD.STREET_W, half = w / 2;
+    if (s.v) {
+      for (let y = s.from; y <= s.to + 1; y++)
+        for (let k = 0; k < w; k++) paintRoad(s.at + k, y, k < half ? LS : LN);
+    } else {
+      for (let x = s.from; x <= s.to + 1; x++)
+        for (let k = 0; k < w; k++) paintRoad(x, s.at + k, k < half ? LW : LE);
     }
   }
 
@@ -191,6 +211,115 @@
     lane[i] |= bit;
   }
 
+  /* ---------- ronds-points ---------- */
+
+  function insideAnyRoundabout(tx, ty, pad) {
+    pad = pad || 0.5;
+    for (const rb of roundabouts) {
+      if (Math.hypot(tx + 0.5 - rb.cx, ty + 0.5 - rb.cy) <= rb.rOut + pad) return true;
+    }
+    return false;
+  }
+
+  function carveRoundabout(rb) {
+    const cx = rb.cx, cy = rb.cy, rOut = rb.r, islandR = rb.r - 2.2;
+    const x0 = Math.floor(cx - rOut - 1), x1 = Math.ceil(cx + rOut + 1);
+    const y0 = Math.floor(cy - rOut - 1), y1 = Math.ceil(cy + rOut + 1);
+    const ring = [];
+    for (let ty = y0; ty <= y1; ty++) {
+      for (let tx = x0; tx <= x1; tx++) {
+        if (!inB(tx, ty)) continue;
+        const d = Math.hypot(tx + 0.5 - cx, ty + 0.5 - cy);
+        const i = idx(tx, ty);
+        if (d <= islandR) {
+          tiles[i] = PLAZA; lane[i] = 0; bridgeF[i] = 0;
+        } else if (d <= rOut) {
+          tiles[i] = ROAD; lane[i] = 0; bridgeF[i] = 0;
+          ring.push(i); ringTiles.add(i);
+        }
+      }
+    }
+    const rset = new Set(ring);
+    // sens giratoire anti-horaire : tangente CCW = (py, -px) en écran
+    for (const i of ring) {
+      const tx = i % MW, ty = (i / MW) | 0;
+      const px = tx + 0.5 - cx, py = ty + 0.5 - cy;
+      const tanx = py, tany = -px;
+      let best = null, bestDot = -Infinity;
+      for (const dd of DIRS) {
+        const nx = tx + dd.dx, ny = ty + dd.dy;
+        if (!inB(nx, ny) || !rset.has(idx(nx, ny))) continue;
+        const dot = dd.dx * tanx + dd.dy * tany;
+        if (dot > bestDot) { bestDot = dot; best = dd; }
+      }
+      if (best) lane[i] = best.bit;
+    }
+    reserved.push({ x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 });
+    roundabouts.push({ cx, cy, rOut, islandR, island: rb.island, name: rb.name });
+  }
+
+  // les voitures de l'anneau peuvent bifurquer sur une voie sortante
+  function roundaboutExitPass() {
+    for (const i of ringTiles) {
+      const tx = i % MW, ty = (i / MW) | 0;
+      for (const dd of DIRS) {
+        const nx = tx + dd.dx, ny = ty + dd.dy;
+        if (!inB(nx, ny)) continue;
+        const ni = idx(nx, ny);
+        if (ringTiles.has(ni) || tiles[ni] !== ROAD) continue;
+        if (lane[ni] & dd.bit) lane[i] |= dd.bit; // la voie file vers l'extérieur
+      }
+    }
+  }
+
+  /* ---------- avenues diagonales ---------- */
+
+  function paintDiagTile(tx, ty, mask) {
+    if (!inB(tx, ty)) return;
+    if (insideAnyRoundabout(tx, ty, 0.2)) return; // ne pas écraser les anneaux
+    const i = idx(tx, ty);
+    if (tiles[i] === WATER) return;
+    tiles[i] = ROAD; lane[i] |= mask; bridgeF[i] = 0;
+  }
+
+  // escalier « supercouverture » : masque composé constant, corridor étroit
+  // pour forcer le zigzag sans dérive (l'IA préfère tout droit).
+  function paintDiagLane(x0, y0, x1, y1, mask) {
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const steps = Math.ceil(dist * 3);
+    let ptx = null, pty = null;
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps;
+      const tx = Math.floor(x0 + (x1 - x0) * t);
+      const ty = Math.floor(y0 + (y1 - y0) * t);
+      if (ptx !== null && tx !== ptx && ty !== pty) paintDiagTile(ptx, ty, mask); // coude
+      paintDiagTile(tx, ty, mask);
+      ptx = tx; pty = ty;
+    }
+  }
+
+  function paintDiagonal(d) {
+    const ax = d.x0, ay = d.y0, bx = d.x1, by = d.y1;
+    const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy) || 1;
+    const perpx = -dy / len, perpy = dx / len, off = 1.1;
+    // masque « aller » (A→B) et « retour » (B→A) selon la pente
+    const fwd = (dx < 0 ? LW : LE) | (dy < 0 ? LN : LS);
+    const bwd = (dx < 0 ? LE : LW) | (dy < 0 ? LS : LN);
+    paintDiagLane(ax + perpx * off, ay + perpy * off, bx + perpx * off, by + perpy * off, fwd);
+    paintDiagLane(bx - perpx * off, by - perpy * off, ax - perpx * off, ay - perpy * off, bwd);
+    // corridor sans bâtiment (petits pavés réservés le long de l'axe)
+    const rboxes = Math.ceil(len / 2.5);
+    for (let k = 0; k <= rboxes; k++) {
+      const t = k / rboxes;
+      const cx = Math.floor(ax + dx * t) - 2, cy = Math.floor(ay + dy * t) - 2;
+      if (!insideAnyRoundabout(cx + 2, cy + 2, 1)) reserved.push({ x: cx, y: cy, w: 5, h: 5 });
+    }
+    diagonals.push({
+      ax: ax * T, ay: ay * T, bx: bx * T, by: by * T,
+      nx: perpx, ny: perpy, name: d.name
+    });
+  }
+
   function genSidewalks() {
     for (let y = 0; y < MH; y++) {
       for (let x = 0; x < MW; x++) {
@@ -198,6 +327,74 @@
         if (get(x + 1, y) === ROAD || get(x - 1, y) === ROAD ||
             get(x, y + 1) === ROAD || get(x, y - 1) === ROAD) {
           set(x, y, SIDEWALK);
+        }
+      }
+    }
+  }
+
+  /* ---------- îlots + monuments des ronds-points ---------- */
+
+  function genRoundaboutFeatures(rng) {
+    for (const rb of roundabouts) {
+      const px = rb.cx * T, py = rb.cy * T, rr = rb.islandR * T;
+      // collision : l'îlot central est infranchissable
+      addSolid({ shape: "circle", x: px, y: py, r: rr * 0.92 });
+      structures.push({
+        x: px, y: py, r: rr + rb.rOut * T,
+        draw: (ctx, camX, camY) => drawRoundaboutIsland(ctx, rb, px, py, rr, camX, camY)
+      });
+    }
+  }
+
+  function drawRoundaboutIsland(ctx, rb, px, py, rr, camX, camY) {
+    // pelouse / dallage de l'îlot
+    ctx.fillStyle = "#5f7a48";
+    ctx.beginPath(); ctx.arc(px, py, rr, 0, U.TAU); ctx.fill();
+    ctx.strokeStyle = "#cfc6b3"; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(px, py, rr - 2, 0, U.TAU); ctx.stroke();
+    ctx.strokeStyle = INK_MAP; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(px, py, rr, 0, U.TAU); ctx.stroke();
+
+    switch (rb.island) {
+      case "fountain": {
+        ctx.fillStyle = "#8fa9b8";
+        ctx.beginPath(); ctx.arc(px, py, rr * 0.55, 0, U.TAU); ctx.fill();
+        ctx.strokeStyle = "#d8e6ec"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(px, py, rr * 0.55, 0, U.TAU); ctx.stroke();
+        const jet = { x: 0, y: 0 };
+        S.elevate(px, py, 34, camX, camY, jet);
+        ctx.strokeStyle = "#bfe4f2"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(jet.x, jet.y); ctx.stroke();
+        ctx.fillStyle = "rgba(210,240,250,0.85)";
+        ctx.beginPath(); ctx.arc(jet.x, jet.y, 5, 0, U.TAU); ctx.fill();
+        break;
+      }
+      case "statue": {
+        const top = { x: 0, y: 0 };
+        S.drawBox(ctx, px - 8, py - 8, 16, 16, 20, camX, camY, "#9aa0a3", "#c2c8cb");
+        S.elevate(px, py, 46, camX, camY, top);
+        ctx.fillStyle = "#c9a227"; ctx.strokeStyle = INK_MAP; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.ellipse(top.x, top.y, 6, 12, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
+        break;
+      }
+      case "obelisk": {
+        const tip = { x: 0, y: 0 }, base = { x: 0, y: 0 };
+        S.elevate(px, py, 0, camX, camY, base);
+        S.elevate(px, py, 64, camX, camY, tip);
+        ctx.fillStyle = "#b8a06a"; ctx.strokeStyle = INK_MAP; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(base.x - 6, base.y); ctx.lineTo(base.x + 6, base.y);
+        ctx.lineTo(tip.x + 1.5, tip.y); ctx.lineTo(tip.x - 1.5, tip.y);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = "#ffc857";
+        ctx.beginPath(); ctx.arc(tip.x, tip.y, 2, 0, U.TAU); ctx.fill();
+        break;
+      }
+      default: { // garden
+        const rng = U.makeRng((px * 13 + py * 7) >>> 0);
+        for (let k = 0; k < 5; k++) {
+          const a = rng() * U.TAU, rd = rng() * rr * 0.6;
+          S.PROPS.tree(ctx, { x: px + Math.cos(a) * rd, y: py + Math.sin(a) * rd, h: 30, r: 10 }, camX, camY);
         }
       }
     }
@@ -589,18 +786,17 @@
 
   function genStreetProps(rng) {
     for (const s of segs) {
-      const step = 8;
+      const step = 8, w = s.w || 2;
       for (let t = s.from + 4; t <= s.to - 2; t += step) {
+        const side = ((t / step) | 0) % 2 === 0 ? -1 : 1;
         if (s.v) {
-          const side = ((t / step) | 0) % 2 === 0 ? -1 : 1;
-          const x = side < 0 ? (s.at - 0.35) * T : (s.at + 2.35) * T;
-          const y = (t + 0.5) * T;
-          placeLamp(x, y, rng);
+          if (insideAnyRoundabout(s.at + w / 2, t, 1.5)) continue;
+          const x = side < 0 ? (s.at - 0.35) * T : (s.at + w + 0.35) * T;
+          placeLamp(x, (t + 0.5) * T, rng);
         } else {
-          const side = ((t / step) | 0) % 2 === 0 ? -1 : 1;
-          const y = side < 0 ? (s.at - 0.35) * T : (s.at + 2.35) * T;
-          const x = (t + 0.5) * T;
-          placeLamp(x, y, rng);
+          if (insideAnyRoundabout(t, s.at + w / 2, 1.5)) continue;
+          const y = side < 0 ? (s.at - 0.35) * T : (s.at + w + 0.35) * T;
+          placeLamp((t + 0.5) * T, y, rng);
         }
       }
     }
@@ -634,12 +830,13 @@
   function genParkedCars(rng) {
     const types = ["sedan", "sedan", "taxi", "van", "pickup", "sport", "sedan", "bike"];
     for (const s of segs) {
+      if ((s.w || 2) > MD.STREET_W) continue; // pas de stationnement sur les boulevards
       for (let t = s.from + 5; t <= s.to - 4; t += U.rint(rng, 8, 14)) {
         if (rng() < 0.4) continue;
         if (s.v) {
           const ty = t;
-          if (bridgeF[idx(s.at, ty)]) continue;
-          if (isCross(s.at, ty)) continue;
+          if (bridgeF[idx(s.at, ty)] || isCross(s.at, ty)) continue;
+          if (insideAnyRoundabout(s.at + 1, ty, 1.5)) continue;
           parkedSpawns.push({
             x: (s.at + 0.30) * T, y: (ty + 0.5) * T,
             angle: Math.PI / 2, type: U.pick(rng, types),
@@ -647,8 +844,8 @@
           });
         } else {
           const tx = t;
-          if (bridgeF[idx(tx, s.at)]) continue;
-          if (isCross(tx, s.at)) continue;
+          if (bridgeF[idx(tx, s.at)] || isCross(tx, s.at)) continue;
+          if (insideAnyRoundabout(tx, s.at + 1, 1.5)) continue;
           parkedSpawns.push({
             x: (tx + 0.5) * T, y: (s.at + 0.30) * T,
             angle: Math.PI, type: U.pick(rng, types),
@@ -887,46 +1084,84 @@
   }
 
   function drawRoadMarkings(ctx, x0, y0, x1, y1) {
+    // 0. bandes d'asphalte des avenues diagonales (sous les marquages)
+    for (const d of diagonals) {
+      const minx = Math.min(d.ax, d.bx) - 90, maxx = Math.max(d.ax, d.bx) + 90;
+      const miny = Math.min(d.ay, d.by) - 90, maxy = Math.max(d.ay, d.by) + 90;
+      if (maxx < x0 || minx > x1 || maxy < y0 || miny > y1) continue;
+      const hw = 1.9 * T;
+      ctx.fillStyle = "#3b3f4a";
+      ctx.beginPath();
+      ctx.moveTo(d.ax + d.nx * hw, d.ay + d.ny * hw);
+      ctx.lineTo(d.bx + d.nx * hw, d.by + d.ny * hw);
+      ctx.lineTo(d.bx - d.nx * hw, d.by - d.ny * hw);
+      ctx.lineTo(d.ax - d.nx * hw, d.ay - d.ny * hw);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = "#c9a227"; ctx.lineWidth = 2.4; ctx.setLineDash([14, 18]);
+      ctx.beginPath(); ctx.moveTo(d.ax, d.ay); ctx.lineTo(d.bx, d.by); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // 1. lignes d'axe des rues (médiane pour les boulevards)
     ctx.strokeStyle = "#c9a227"; ctx.lineWidth = 2.5;
     ctx.setLineDash([14, 18]);
     for (const s of segs) {
+      const w = s.w || MD.STREET_W, mid = (s.at + w / 2) * T;
       if (s.v) {
-        const x = (s.at + 1) * T;
-        if (x < x0 - 50 || x > x1 + 50) continue;
+        if (mid < x0 - 50 || mid > x1 + 50) continue;
         ctx.beginPath();
-        ctx.moveTo(x, Math.max(s.from * T, y0 - 40));
-        ctx.lineTo(x, Math.min((s.to + 2) * T, y1 + 40));
+        ctx.moveTo(mid, Math.max(s.from * T, y0 - 40));
+        ctx.lineTo(mid, Math.min((s.to + 2) * T, y1 + 40));
         ctx.stroke();
       } else {
-        const y = (s.at + 1) * T;
-        if (y < y0 - 50 || y > y1 + 50) continue;
+        if (mid < y0 - 50 || mid > y1 + 50) continue;
         ctx.beginPath();
-        ctx.moveTo(Math.max(s.from * T, x0 - 40), y);
-        ctx.lineTo(Math.min((s.to + 2) * T, x1 + 40), y);
+        ctx.moveTo(Math.max(s.from * T, x0 - 40), mid);
+        ctx.lineTo(Math.min((s.to + 2) * T, x1 + 40), mid);
         ctx.stroke();
       }
     }
     ctx.setLineDash([]);
+
+    // 2. passages piétons aux carrefours (hors ronds-points)
     ctx.fillStyle = "rgba(232,228,216,0.75)";
     for (const v of segs) {
       if (!v.v) continue;
+      const vw = v.w || 2;
       for (const hseg of segs) {
         if (hseg.v) continue;
+        const hw = hseg.w || 2;
         if (hseg.at < v.from || hseg.at > v.to) continue;
         if (v.at < hseg.from || v.at > hseg.to) continue;
         const ix = v.at * T, iy = hseg.at * T;
         if (ix < x0 - 200 || ix > x1 + 200 || iy < y0 - 200 || iy > y1 + 200) continue;
-        for (let k = 0; k < 6; k++) {
-          const zx = ix + 6 + k * 15;
+        if (insideAnyRoundabout(v.at + vw / 2, hseg.at + hw / 2, 1)) continue;
+        const vwp = vw * T, hwp = hw * T;
+        const nV = Math.max(2, Math.round(vwp / 15));
+        const nH = Math.max(2, Math.round(hwp / 15));
+        for (let k = 0; k < nV; k++) {
+          const zx = ix + 5 + k * (vwp - 6) / nV;
           ctx.fillRect(zx, iy - 14, 9, 10);
-          ctx.fillRect(zx, iy + 2 * T + 4, 9, 10);
+          ctx.fillRect(zx, iy + hwp + 4, 9, 10);
         }
-        for (let k = 0; k < 6; k++) {
-          const zy = iy + 6 + k * 15;
+        for (let k = 0; k < nH; k++) {
+          const zy = iy + 5 + k * (hwp - 6) / nH;
           ctx.fillRect(ix - 14, zy, 10, 9);
-          ctx.fillRect(ix + 2 * T + 4, zy, 10, 9);
+          ctx.fillRect(ix + vwp + 4, zy, 10, 9);
         }
       }
+    }
+
+    // 3. anneaux giratoires des ronds-points
+    for (const rb of roundabouts) {
+      const px = rb.cx * T, py = rb.cy * T, R = rb.rOut * T;
+      if (px + R < x0 || px - R > x1 || py + R < y0 || py - R > y1) continue;
+      ctx.strokeStyle = "rgba(232,228,216,0.55)"; ctx.lineWidth = 2;
+      ctx.setLineDash([12, 14]);
+      ctx.beginPath(); ctx.arc(px, py, (rb.islandR + rb.rOut) / 2 * T, 0, U.TAU); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "rgba(20,16,26,0.4)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px, py, R, 0, U.TAU); ctx.stroke();
     }
   }
 
