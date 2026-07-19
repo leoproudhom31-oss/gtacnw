@@ -1468,14 +1468,15 @@
     bollard(ctx, p) {
       ctx.fillStyle = "rgba(10,8,20,0.25)";
       ctx.beginPath(); ctx.ellipse(p.x + 1.5, p.y + 2, 4, 2.6, 0, 0, U.TAU); ctx.fill();
+      ctx.save(); ctx.translate(p.x, p.y);
       ctx.fillStyle = "#20242c"; ctx.strokeStyle = INK; ctx.lineWidth = 1.1;
       ctx.beginPath();
       ctx.moveTo(-3, 3); ctx.lineTo(-3, -4); ctx.quadraticCurveTo(-3, -7, 0, -7);
       ctx.quadraticCurveTo(3, -7, 3, -4); ctx.lineTo(3, 3); ctx.closePath();
-      ctx.translate(p.x, p.y); ctx.fill(); ctx.stroke();
+      ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#ffc857"; ctx.fillRect(-3, -3, 6, 1.6);
       ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.fillRect(-2, -6, 1.4, 8);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.restore();
     },
 
     cone(ctx, p) {

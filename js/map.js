@@ -938,8 +938,10 @@
   const CW = Math.ceil(MW / CHUNK);
   const CH = Math.ceil(MH / CHUNK);
   const chunkCache = new Map();
-  const MAX_CHUNKS = 64;
-  const GSS = 2;
+  const chunkAvg = new Map();
+  const MAX_CHUNKS = 80;
+  const GSS = 1;              // le détail vient désormais des textures elles-mêmes
+  let _bakeBudget = 0;        // nb max de chunks cuits par frame (anti-freeze)
 
   const TILE_COLORS = {
     [WATER]: "#16535c", [GRASS]: "#7fae5a", [SIDEWALK]: "#cfc6b3",
@@ -947,10 +949,34 @@
     [PATH]: "#d9c08f", [BUILDING]: "#2a2633", [SAND]: "#e8d5a4"
   };
 
+  // couleur moyenne (tuile dominante) d'un chunk : bouchon instantané tant
+  // que le chunk détaillé n'est pas encore cuit (évite tout trou/gel).
+  function chunkAverageColor(ci, cj) {
+    const key = cj * CW + ci;
+    let col = chunkAvg.get(key);
+    if (col) return col;
+    const counts = {};
+    const ox = ci * CHUNK, oy = cj * CHUNK;
+    for (let ty = 0; ty < CHUNK; ty += 2)
+      for (let tx = 0; tx < CHUNK; tx += 2) {
+        const t = get(ox + tx, oy + ty);
+        counts[t] = (counts[t] || 0) + 1;
+      }
+    let best = GRASS, bc = -1;
+    for (const k in counts) if (counts[k] > bc) { bc = counts[k]; best = k; }
+    col = TILE_COLORS[best] || "#7fae5a";
+    chunkAvg.set(key, col);
+    return col;
+  }
+
+  // renvoie le canvas de chunk s'il est prêt (ou cuit dans la limite du
+  // budget de frame), sinon null → l'appelant pose un bouchon plat.
   function chunkCanvas(ci, cj) {
     const key = cj * CW + ci;
     let c = chunkCache.get(key);
     if (c) return c;
+    if (_bakeBudget <= 0) return null;
+    _bakeBudget--;
     if (chunkCache.size >= MAX_CHUNKS) {
       const first = chunkCache.keys().next().value;
       chunkCache.delete(first);
@@ -958,8 +984,9 @@
     const hi = document.createElement("canvas");
     hi.width = CPX * GSS; hi.height = CPX * GSS;
     const hiCtx = hi.getContext("2d");
-    hiCtx.scale(GSS, GSS);
+    if (GSS !== 1) hiCtx.scale(GSS, GSS);
     renderChunk(hiCtx, ci, cj);
+    if (GSS === 1) { chunkCache.set(key, hi); return hi; }
     c = document.createElement("canvas");
     c.width = CPX; c.height = CPX;
     const fCtx = c.getContext("2d");
@@ -1190,9 +1217,13 @@
     const cj0 = U.clamp(Math.floor(vy0 / CPX), 0, CH - 1);
     const ci1 = U.clamp(Math.floor(vx1 / CPX), 0, CW - 1);
     const cj1 = U.clamp(Math.floor(vy1 / CPX), 0, CH - 1);
+    _bakeBudget = 1; // au plus un chunk cuit par frame → pas de gel visible
     for (let cj = cj0; cj <= cj1; cj++)
-      for (let ci = ci0; ci <= ci1; ci++)
-        ctx.drawImage(chunkCanvas(ci, cj), ci * CPX, cj * CPX);
+      for (let ci = ci0; ci <= ci1; ci++) {
+        const c = chunkCanvas(ci, cj);
+        if (c) ctx.drawImage(c, ci * CPX, cj * CPX);
+        else { ctx.fillStyle = chunkAverageColor(ci, cj); ctx.fillRect(ci * CPX, cj * CPX, CPX, CPX); }
+      }
     for (const p of flatProps) {
       if (p.x < vx0 - 40 || p.x > vx1 + 40 || p.y < vy0 - 40 || p.y > vy1 + 40) continue;
       S.PROPS[p.type](ctx, p);

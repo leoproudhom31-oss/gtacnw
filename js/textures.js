@@ -27,6 +27,18 @@
   const pick = (r, arr) => arr[(r() * arr.length) | 0];
   const rr = (r, a, b) => a + r() * (b - a);
 
+  // moyenne de deux couleurs hex (pour un aplat de base bon marché)
+  const _mixCache = {};
+  function mixHex(a, b) {
+    const k = a + b; if (_mixCache[k]) return _mixCache[k];
+    const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+    const r = ((pa >> 16 & 255) + (pb >> 16 & 255)) >> 1;
+    const g = ((pa >> 8 & 255) + (pb >> 8 & 255)) >> 1;
+    const bl = ((pa & 255) + (pb & 255)) >> 1;
+    const out = "#" + ((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1);
+    _mixCache[k] = out; return out;
+  }
+
   /* =========================================================
      PRIMITIVES DE COUCHE — chacune paramétrée par « plusieurs
      valeurs ». (ctx est déjà translaté : dessin en 0..w, 0..h.)
@@ -34,13 +46,11 @@
 
   const LAYERS = {
 
-    // aplat + dégradé vertical + variation tonale par plaques
+    // aplat (bon marché) + variation tonale par plaques. Le dégradé
+    // par tuile a été retiré (256 gradients/chunk = trop lent au bake) ;
+    // l'aplat prend la teinte moyenne du dégradé.
     base(ctx, w, h, r, L) {
-      if (L.grad) {
-        const g = ctx.createLinearGradient(0, 0, 0, h);
-        g.addColorStop(0, L.grad[0]); g.addColorStop(1, L.grad[1]);
-        ctx.fillStyle = g;
-      } else ctx.fillStyle = L.color;
+      ctx.fillStyle = L.color || (L.grad ? mixHex(L.grad[0], L.grad[1]) : "#000");
       ctx.fillRect(0, 0, w, h);
       if (L.vary) {
         for (let i = 0; i < L.vary; i++) {
@@ -248,10 +258,10 @@
   const MATERIALS = {
     grass: {
       layers: [
-        { type: "base", grad: ["#83b25c", "#76a552"], vary: 3, varyColors: ["#6f9c4c", "#8dbb64", "#688f45"], varyA: 0.16 },
-        { type: "speckle", n: 10, r: [0.5, 1.4], colors: ["#5e8a3f", "#9ac96e", "#c8d98a"], a: 0.5, aVar: true },
-        { type: "blades", n: 16, colors: ["#5f9040", "#7cb156", "#4e7a34", "#96c96a"], len: [3, 7], lean: 2.2, width: 1 },
-        { type: "speckle", n: 3, r: [0.8, 1.6], colors: ["#f4e6a0", "#e58fb1", "#f0f4e0"], a: 0.9 }, // fleurs
+        { type: "base", grad: ["#83b25c", "#76a552"], vary: 2, varyColors: ["#6f9c4c", "#8dbb64", "#688f45"], varyA: 0.16 },
+        { type: "speckle", n: 7, r: [0.5, 1.4], colors: ["#5e8a3f", "#9ac96e", "#c8d98a"], a: 0.5, aVar: true },
+        { type: "blades", n: 10, colors: ["#5f9040", "#7cb156", "#4e7a34", "#96c96a"], len: [3, 7], lean: 2.2, width: 1 },
+        { type: "speckle", n: 2, r: [0.8, 1.6], colors: ["#f4e6a0", "#e58fb1", "#f0f4e0"], a: 0.9 }, // fleurs
         { type: "stain", chance: 0.18, n: 1, r: [6, 12], color: "rgba(120,96,58,0.28)" }             // plaque de terre
       ]
     },
@@ -259,15 +269,15 @@
       layers: [
         { type: "base", grad: ["#d4cbb8", "#c7bda8"], vary: 2, varyColors: ["#cdc3ad", "#dbd2bf"], varyA: 0.2 },
         { type: "joints", rows: 2, cols: 2, dark: "rgba(120,110,90,0.5)", light: "rgba(255,250,238,0.35)", width: 1 },
-        { type: "speckle", n: 26, r: [0.4, 1.1], colors: ["#b7ad97", "#e6ddc9", "#8f866f"], a: 0.5, aVar: true },
+        { type: "speckle", n: 14, r: [0.4, 1.1], colors: ["#b7ad97", "#e6ddc9", "#8f866f"], a: 0.5, aVar: true },
         { type: "cracks", chance: 0.22, n: 1, len: 5, seg: 5, color: "rgba(90,82,66,0.4)", width: 0.7 },
         { type: "stain", chance: 0.14, n: 1, r: [5, 10], color: "rgba(70,64,52,0.22)" }
       ]
     },
     road: {
       layers: [
-        { type: "base", grad: ["#3f434e", "#363a44"], vary: 3, varyColors: ["#3a3e48", "#43474f", "#33363e"], varyA: 0.22 },
-        { type: "speckle", n: 40, r: [0.35, 1.0], colors: ["#4c515c", "#2b2e36", "#5a6069", "#3a3d45"], a: 0.55, aVar: true },
+        { type: "base", grad: ["#3f434e", "#363a44"], vary: 2, varyColors: ["#3a3e48", "#43474f", "#33363e"], varyA: 0.22 },
+        { type: "speckle", n: 22, r: [0.35, 1.0], colors: ["#4c515c", "#2b2e36", "#5a6069", "#3a3d45"], a: 0.55, aVar: true },
         { type: "cracks", chance: 0.14, n: 1, len: 7, seg: 6, color: "rgba(18,20,26,0.6)", width: 0.9 },
         { type: "stain", chance: 0.10, n: 1, r: [7, 13], color: "rgba(14,14,18,0.4)" }   // tache d'huile
       ]
@@ -276,30 +286,30 @@
       layers: [
         { type: "base", grad: ["#dccca8", "#cdbd98" ], vary: 2, varyColors: ["#d3c39f", "#e2d3af"], varyA: 0.18 },
         { type: "herringbone", size: 12, dark: "rgba(150,128,92,0.45)", width: 1 },
-        { type: "speckle", n: 22, r: [0.4, 1.1], colors: ["#c3b18a", "#efe2bd", "#a99c88"], a: 0.45, aVar: true },
+        { type: "speckle", n: 12, r: [0.4, 1.1], colors: ["#c3b18a", "#efe2bd", "#a99c88"], a: 0.45, aVar: true },
         { type: "stain", chance: 0.12, n: 1, r: [6, 11], color: "rgba(90,72,44,0.22)" }
       ]
     },
     path: {
       layers: [
         { type: "base", grad: ["#dcc493", "#cbb182"], vary: 2, varyColors: ["#d2b981", "#e2cc9a"], varyA: 0.2 },
-        { type: "pebbles", n: 20, r: [0.7, 1.8], colors: ["#b49a6a", "#efe0b8", "#9c8258", "#c8b389"], shade: "rgba(90,72,44,0.3)" },
-        { type: "speckle", n: 16, r: [0.4, 1.0], colors: ["#a98f60", "#f0e4c2"], a: 0.5, aVar: true }
+        { type: "pebbles", n: 12, r: [0.7, 1.8], colors: ["#b49a6a", "#efe0b8", "#9c8258", "#c8b389"], shade: "rgba(90,72,44,0.3)" },
+        { type: "speckle", n: 10, r: [0.4, 1.0], colors: ["#a98f60", "#f0e4c2"], a: 0.5, aVar: true }
       ]
     },
     sand: {
       layers: [
-        { type: "base", grad: ["#ecd9a8", "#e2cd98"], vary: 3, varyColors: ["#e7d29f", "#f2e3ba", "#dcc68f"], varyA: 0.18 },
+        { type: "base", grad: ["#ecd9a8", "#e2cd98"], vary: 2, varyColors: ["#e7d29f", "#f2e3ba", "#dcc68f"], varyA: 0.18 },
         { type: "ripples", n: 3, amp: 2.5, color: "rgba(200,176,120,0.35)", width: 1 },
-        { type: "speckle", n: 30, r: [0.3, 0.9], colors: ["#c8ac74", "#fff4dc", "#b59a63", "#efe0bb"], a: 0.6, aVar: true },
+        { type: "speckle", n: 18, r: [0.3, 0.9], colors: ["#c8ac74", "#fff4dc", "#b59a63", "#efe0bb"], a: 0.6, aVar: true },
         { type: "speckle", n: 2, r: [0.9, 1.6], colors: ["#fff8ea", "#e9b7a0"], a: 0.9 } // coquillages
       ]
     },
     dock: {
       layers: [
         { type: "base", grad: ["#a6a49a", "#95948b"], vary: 2, varyColors: ["#9d9c92", "#afaea3"], varyA: 0.16 },
-        { type: "planks", dir: "h", n: 3, joint: "rgba(60,58,52,0.55)", grain: "rgba(70,64,54,0.3)", grainN: 3, nails: true, knots: 0.25 },
-        { type: "speckle", n: 14, r: [0.4, 1.0], colors: ["#8c8b82", "#c0bfb4"], a: 0.4, aVar: true },
+        { type: "planks", dir: "h", n: 3, joint: "rgba(60,58,52,0.55)", grain: "rgba(70,64,54,0.3)", grainN: 2, nails: true, knots: 0.25 },
+        { type: "speckle", n: 10, r: [0.4, 1.0], colors: ["#8c8b82", "#c0bfb4"], a: 0.4, aVar: true },
         { type: "stain", chance: 0.2, n: 1, r: [6, 12], color: "rgba(60,70,60,0.28)" } // mousse humide
       ]
     },
