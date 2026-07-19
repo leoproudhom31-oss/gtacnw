@@ -1080,6 +1080,11 @@
     W.viewW = width; W.viewH = height;
     const pl = W.player;
 
+    // repère écran de base (échelle DPR) : garde-fou pour que la teinte et
+    // le HUD s'affichent toujours correctement, même si un dessin du monde
+    // laissait fuir une transformation caméra.
+    const baseTransform = ctx.getTransform ? ctx.getTransform() : null;
+
     // fond (eau du large)
     ctx.fillStyle = "#0d2b33";
     ctx.fillRect(0, 0, width, height);
@@ -1226,6 +1231,9 @@
     }
 
     ctx.restore();
+
+    // garde-fou : rétablir le repère écran de base avant la teinte + le HUD
+    if (baseTransform) ctx.setTransform(baseTransform);
 
     // teinte « heure dorée » très légère
     const grad = ctx.createLinearGradient(0, 0, width, height);

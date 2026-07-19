@@ -1461,6 +1461,7 @@
       ctx.fillStyle = "#5a6578"; ctx.strokeStyle = INK; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.ellipse(0, -3.5, 5.6, 2.3, 0, 0, U.TAU); ctx.fill(); ctx.stroke();
       ctx.fillStyle = "#2d3748"; ctx.beginPath(); ctx.ellipse(0, -3.8, 2.4, 1, 0, 0, U.TAU); ctx.fill();
+      ctx.restore();
     },
 
     /* ---------- nouveaux props détaillés ---------- */
