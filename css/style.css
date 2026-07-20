@@ -1,0 +1,175 @@
+/* ============================================================
+   JADE HARBOR — Chroniques du Lotus Noir
+   Direction artistique « Encre & Néon » :
+   encre profonde, jade lumineux, or lanterne, magenta néon.
+   ============================================================ */
+
+:root {
+  --ink:      #12101a;
+  --ink-2:    #1c1926;
+  --jade:     #2ee6a8;
+  --jade-dim: #1b8f6a;
+  --gold:     #ffc857;
+  --magenta:  #ff4f9a;
+  --paper:    #f5ead6;
+  --paper-dim:#c9bda6;
+  --danger:   #ff5340;
+  --font-ui:    "Rubik", "Trebuchet MS", "Segoe UI", sans-serif;
+  --font-title: "Chakra Petch", "Rubik", "Trebuchet MS", sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  background: var(--ink);
+  overflow: hidden;
+  font-family: var(--font-ui);
+  color: var(--paper);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#wrap { position: fixed; inset: 0; }
+
+#game {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  display: block;
+  background: #0d2b33;
+  cursor: crosshair;
+}
+
+/* ---------- Overlays ---------- */
+.overlay {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(ellipse at 50% 20%, rgba(46, 230, 168, 0.10), transparent 55%),
+    radial-gradient(ellipse at 80% 90%, rgba(255, 79, 154, 0.10), transparent 50%),
+    linear-gradient(180deg, #141020 0%, #0e1a1c 60%, #0a0d14 100%);
+  z-index: 20;
+}
+
+.title-inner { text-align: center; max-width: 720px; padding: 24px; }
+
+.hanzi {
+  font-size: 64px;
+  color: var(--gold);
+  text-shadow: 0 0 18px rgba(255, 200, 87, .55), 0 3px 0 #7a5410;
+  letter-spacing: 18px;
+  margin-bottom: 6px;
+  font-family: "Yu Gothic", "Hiragino Sans", "Noto Sans CJK SC", serif;
+}
+.hanzi.small { font-size: 40px; }
+
+h1.logo {
+  font-family: var(--font-title);
+  font-size: clamp(48px, 9vw, 96px);
+  font-weight: 700;
+  letter-spacing: 6px;
+  line-height: .95;
+  color: var(--jade);
+  text-shadow:
+    0 0 24px rgba(46, 230, 168, .45),
+    4px 4px 0 #0c4a37,
+    8px 8px 0 rgba(0, 0, 0, .55);
+  -webkit-text-stroke: 2px #063325;
+}
+
+.subtitle {
+  margin-top: 10px;
+  font-size: 18px;
+  letter-spacing: 5px;
+  color: var(--magenta);
+  text-shadow: 0 0 14px rgba(255, 79, 154, .6);
+  text-transform: uppercase;
+}
+
+.menu { margin-top: 42px; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+
+.menu-btn {
+  font-family: var(--font-title);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--jade), #17b47d);
+  border: 2px solid #0a3a2b;
+  border-radius: 4px;
+  box-shadow: 0 4px 0 #0a3a2b, 0 0 22px rgba(46, 230, 168, .25);
+  padding: 12px 44px;
+  min-width: 300px;
+  cursor: pointer;
+  transition: transform .08s, box-shadow .08s, filter .12s;
+}
+.menu-btn:hover { filter: brightness(1.12); transform: translateY(-1px); }
+.menu-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #0a3a2b; }
+
+.menu-btn.ghost {
+  background: transparent;
+  color: var(--paper);
+  border-color: var(--paper-dim);
+  box-shadow: 0 4px 0 rgba(201, 189, 166, .35);
+}
+
+.title-foot {
+  margin-top: 46px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--paper-dim);
+  letter-spacing: 1px;
+}
+
+/* ---------- Panneau commandes ---------- */
+.panel {
+  background: var(--ink-2);
+  border: 2px solid var(--jade-dim);
+  border-radius: 8px;
+  box-shadow: 0 0 40px rgba(0, 0, 0, .6), 0 0 24px rgba(46, 230, 168, .15);
+  padding: 30px 38px;
+  max-width: 640px;
+  text-align: center;
+}
+.panel h2 {
+  color: var(--gold);
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  margin-bottom: 18px;
+}
+.controls-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 24px;
+  font-size: 15px;
+}
+.controls-table td { padding: 7px 10px; text-align: left; border-bottom: 1px solid rgba(245, 234, 214, .1); }
+.controls-table td.k {
+  color: var(--jade);
+  font-weight: 700;
+  white-space: nowrap;
+  width: 46%;
+}
+
+/* ---------- Chargement ---------- */
+.loading-label {
+  margin-top: 18px;
+  font-size: 16px;
+  letter-spacing: 3px;
+  color: var(--paper);
+  text-transform: uppercase;
+}
+.loading-bar {
+  margin: 22px auto 0;
+  width: 320px; height: 14px;
+  border: 2px solid var(--jade-dim);
+  border-radius: 7px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, .4);
+}
+#loading-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--jade-dim), var(--jade), var(--gold));
+  transition: width .15s;
+}
