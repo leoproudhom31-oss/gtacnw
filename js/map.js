@@ -809,9 +809,10 @@
   }
 
   function genStreetProps(rng) {
+    // mobilier dense le long de TOUTES les rues (pas resserré : 8 → 5)
     for (const s of segs) {
-      const step = 8, w = s.w || 2;
-      for (let t = s.from + 4; t <= s.to - 2; t += step) {
+      const step = 5, w = s.w || 2;
+      for (let t = s.from + 3; t <= s.to - 1; t += step) {
         const side = ((t / step) | 0) % 2 === 0 ? -1 : 1;
         if (s.v) {
           if (insideAnyRoundabout(s.at + w / 2, t, 1.5)) continue;
@@ -832,6 +833,64 @@
     for (let k = 0; k < 80; k++) {
       const x = U.rint(rng, 255, MW - 15), y = U.rint(rng, 72, 155);
       if (get(x, y) === GRASS && rng() < 0.4) addTree("tree", (x + 0.5) * T, (y + 0.5) * T, rng);
+    }
+    // dispersion générale : du mobilier PARTOUT (trottoirs, places, quais…)
+    scatterProps(rng);
+  }
+
+  // pools de props par saveur de quartier : ['flat'|'struct', type, rayonSolide]
+  const SCATTER_POOLS = {
+    office:   [["flat", "planter", 8], ["flat", "bench", 10], ["flat", "bollard", 4], ["flat", "trash", 5], ["flat", "bicycle", 6], ["flat", "ac", 7], ["flat", "hydrant", 4], ["struct", "vending", 3]],
+    resid:    [["flat", "planter", 8], ["flat", "hedge", 10], ["flat", "bench", 10], ["flat", "mailbox", 5], ["flat", "bicycle", 6], ["flat", "trash", 5], ["flat", "bollard", 4]],
+    oriental: [["flat", "produce", 9], ["struct", "crate", 3], ["flat", "planter", 8], ["struct", "lantern", 3], ["flat", "trash", 5], ["flat", "bicycle", 6], ["flat", "bench", 10]],
+    park:     [["flat", "bench", 10], ["flat", "planter", 8], ["flat", "hedge", 10], ["struct", "lantern", 3], ["flat", "bicycle", 6]],
+    docks:    [["struct", "barrel", 3], ["struct", "crate", 3], ["flat", "ac", 7], ["flat", "cone", 3], ["flat", "bollard", 4], ["flat", "trash", 5], ["flat", "hydrant", 4]],
+    def:      [["flat", "planter", 8], ["flat", "trash", 5], ["flat", "bollard", 4], ["flat", "bench", 10], ["flat", "hydrant", 4]]
+  };
+
+  function poolFor(dk) {
+    if (dk === "downtown" || dk === "finance") return SCATTER_POOLS.office;
+    if (dk === "resid" || dk === "resid_n" || dk === "hills" || dk === "campus") return SCATTER_POOLS.resid;
+    if (dk === "lotus" || dk === "market") return SCATTER_POOLS.oriental;
+    if (dk === "park") return SCATTER_POOLS.park;
+    if (dk === "docks" || dk === "industrial") return SCATTER_POOLS.docks;
+    return SCATTER_POOLS.def;
+  }
+
+  // parcourt la carte et sème du mobilier sur les tuiles piétonnes libres,
+  // avec un espacement (jamais deux props collés) pour ne pas murer les
+  // trottoirs, et une densité relevée pour qu'il y en ait vraiment partout.
+  function scatterProps(rng) {
+    const occ = new Set();
+    for (let ty = 8; ty < MH - 8; ty++) {
+      for (let tx = 8; tx < MW - 8; tx++) {
+        const t = get(tx, ty);
+        if (t !== SIDEWALK && t !== PLAZA && t !== DOCK && t !== PATH) continue;
+        if (rng() > 0.16) continue;                 // ~16 % des tuiles piétonnes
+        const i = idx(tx, ty);
+        // espacement : pas de prop sur une tuile voisine déjà occupée
+        if (occ.has(i - 1) || occ.has(i + 1) || occ.has(i - MW) || occ.has(i + MW)) continue;
+        if (insideAnyRoundabout(tx, ty, 1)) continue;
+        const x = (tx + 0.5) * T, y = (ty + 0.5) * T;
+        const d = districtAt(x, y);
+        const pool = poolFor(d ? d.key : "");
+        const spec = pool[(rng() * pool.length) | 0];
+        const jx = (rng() - 0.5) * T * 0.4, jy = (rng() - 0.5) * T * 0.4;
+        if (spec[0] === "struct") {
+          const extra = spec[1] === "crate" ? { s: U.rint(rng, 12, 17) }
+                      : spec[1] === "barrel" ? { c: U.pick(rng, ["#3f6f4f", "#8c5a3a", "#4a5a7a", "#7a5230"]) }
+                      : {};
+          addStructProp(spec[1], x + jx, y + jy, extra, spec[1] === "lantern" ? 50 : 40);
+        } else {
+          const extra = spec[1] === "bicycle" ? { a: rng() * U.TAU, c: U.pick(rng, ["#2874a6", "#c0392b", "#1e8449", "#b9770e"]) }
+                      : spec[1] === "bench" ? { a: rng() < 0.5 ? 0 : Math.PI / 2 }
+                      : spec[1] === "hedge" ? { w: U.rint(rng, 16, 26), h: U.rint(rng, 10, 14) }
+                      : spec[1] === "produce" ? { a: (rng() - 0.5) * 0.5, pc: U.pick(rng, [["#e8622b", "#e0b020", "#c0392b"], ["#7cb156", "#e0b020", "#b9770e"]]) }
+                      : {};
+          addFlatProp(spec[1], x + jx, y + jy, extra, spec[2]);
+        }
+        occ.add(i);
+      }
     }
   }
 
